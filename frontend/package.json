@@ -1,0 +1,13 @@
+{
+  "name": "retailshield-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RetailShield SOC Dashboard — placeholder, not yet implemented",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "test": "vitest"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
