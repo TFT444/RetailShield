@@ -1,0 +1,92 @@
+// ============================================================
+// RetailShield — Phishing Detection Rule
+// MITRE ATT&CK : T1566.001 — Spearphishing Attachment
+// Tactic       : Initial Access
+// Severity     : High
+// Frequency    : Every 5 minutes | Lookback: 1 hour
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// ============================================================
+
+let LookbackPeriod = 1h;
+
+// File extensions weaponised in retail phishing campaigns
+let SuspiciousExtensions = dynamic([
+    ".exe", ".js", ".vbs", ".docm", ".xlsm", ".pptm",
+    ".hta", ".bat", ".ps1", ".lnk", ".iso", ".img", ".wsf"
+]);
+
+// Pull approved sender domains from Sentinel watchlist
+// (populate sentinel/watchlists/retail-ioc-watchlist.csv)
+let ApprovedSenderDomains = (
+    _GetWatchlist("RetailApprovedSenders")
+    | project SenderDomain = tolower(tostring(column_ifexists("SenderDomain", "")))
+);
+
+// ── Step 1: Identify suspicious inbound attachments ──────────
+let SuspiciousAttachments =
+    EmailAttachmentInfo
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where isnotempty(FileName)
+    | extend FileExtension = tolower(tostring(split(FileName, ".")[-1]))
+    | extend FileExtensionDot = strcat(".", FileExtension)
+    | where FileExtensionDot in (SuspiciousExtensions)
+        or FileName matches regex @"(?i)\.(exe|js|vbs|docm|xlsm|pptm|hta|bat|ps1|lnk|iso|img|wsf)$"
+    | project
+        NetworkMessageId,
+        FileName,
+        FileExtension,
+        FileSize,
+        SHA256;
+
+// ── Step 2: Join with delivered email events ─────────────────
+let PhishingEmails =
+    EmailEvents
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where DeliveryAction == "Delivered"
+    | where EmailDirection == "Inbound"
+    | extend SenderDomain = tolower(tostring(split(SenderFromAddress, "@")[-1]))
+    | join kind=leftanti (ApprovedSenderDomains) on SenderDomain
+    | join kind=inner (SuspiciousAttachments) on NetworkMessageId
+    | extend
+        // Classify lure type based on subject keywords common in retail phishing
+        LureCategory = case(
+            Subject has_any ("invoice", "remittance", "payment", "order confirmation",
+                             "dispatch", "delivery", "supplier", "purchase order"),
+                "Financial / Supply-Chain Lure",
+            Subject has_any ("urgent", "action required", "account suspended",
+                             "verify", "password reset", "security alert"),
+                "Credential Harvesting Lure",
+            Subject has_any ("payroll", "salary", "HR", "rota", "schedule", "shift"),
+                "HR / Insider Lure",
+            Subject has_any ("CEO", "director", "executive", "management"),
+                "Business Email Compromise",
+            "General Phishing"
+        )
+    | extend
+        RecipientAccount    = tostring(split(RecipientEmailAddress, "@")[0]),
+        RecipientDomain     = tostring(split(RecipientEmailAddress, "@")[1]),
+        SenderAddressLower  = tolower(SenderFromAddress);
+
+// ── Step 3: Surface final alert fields ───────────────────────
+PhishingEmails
+| project
+    TimeGenerated         = Timestamp,
+    SenderAddress         = SenderFromAddress,
+    SenderDomain,
+    RecipientEmailAddress,
+    RecipientAccount,
+    Subject,
+    LureCategory,
+    AttachmentFileName    = FileName,
+    AttachmentExtension   = FileExtension,
+    AttachmentSizeMB      = round(toreal(FileSize) / 1048576, 2),
+    AttachmentSHA256      = SHA256,
+    NetworkMessageId,
+    DeliveryLocation      = LatestDeliveryLocation
+| extend
+    // Fields consumed by the triage Logic App
+    AlertSeverity         = "High",
+    MitreTechnique        = "T1566.001",
+    MitreTactic           = "Initial Access",
+    PlaybookTrigger       = "quarantine_email"
+| order by TimeGenerated desc
