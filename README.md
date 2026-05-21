@@ -1,5 +1,6 @@
 # RetailShield
 
+[![CI](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml/badge.svg)](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Azure Sentinel](https://img.shields.io/badge/SIEM-Azure%20Sentinel-0078D4?logo=microsoftazure)](https://azure.microsoft.com/en-gb/products/microsoft-sentinel)
 [![MITRE ATT&CK](https://img.shields.io/badge/Framework-MITRE%20ATT%26CK-red)](https://attack.mitre.org/)
