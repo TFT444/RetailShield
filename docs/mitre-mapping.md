@@ -9,6 +9,6 @@ Full cross-reference of RetailShield detection rules against MITRE ATT&CK Enterp
 | 🔲 Planned | Persistence | T1078 | Valid Accounts | `after_hours_access.kql` | Medium | `notify-soc` |
 | 🔲 Planned | Credential Access | T1110.004 | Credential Stuffing | `credential_stuffing.kql` | High | `block_ip` |
 | 🔲 Planned | Exfiltration | T1048 | Exfiltration Over Alt. Protocol | `data_exfiltration.kql` | Critical | `isolate_endpoint` |
-| 🔲 Planned | Impact | T1486 | Data Encrypted for Impact | `ransomware_indicator.kql` | Critical | `isolate_endpoint` |
+| ✅ Done | Impact | T1486 | Data Encrypted for Impact | `ransomware_indicator.kql` | Critical | `isolate_endpoint` |
 | 🔲 Planned | Reconnaissance | T1598 | Phishing for Information | `ai_voice_fraud.kql` | High | `notify-soc` |
 | 🔲 Planned | Initial Access | T1195 | Supply Chain Compromise | `supply_chain_anomaly.kql` | High | `block_ip` |
