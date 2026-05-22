@@ -132,3 +132,129 @@ class TestPhishingDetection:
         ]
         for field in required_fields:
             assert_contains(content, field)
+
+
+# ── ransomware_indicator.kql ──────────────────────────────────────────────────
+
+class TestRansomwareIndicator:
+    RULE = "ransomware_indicator.kql"
+
+    def test_file_exists(self):
+        assert (RULES_DIR / self.RULE).exists()
+
+    def test_mitre_technique_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "MITRE ATT&CK", "T1486")
+
+    def test_mitre_tactic_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Tactic", "Impact")
+
+    def test_severity_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Severity", "Critical")
+
+    def test_frequency_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Frequency", "5 minutes")
+
+    def test_mass_file_rename_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "DeviceFileEvents", "FileRenamed", "MassRenameThresh")
+
+    def test_shadow_copy_deletion_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "vssadmin delete shadows",
+            "wmic shadowcopy delete",
+            "bcdedit /set recoveryenabled no",
+            "ShadowCopyDeletion",
+        )
+
+    def test_known_ransomware_process_names(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "lockbit",
+            "blackcat",
+            "conti",
+            "ryuk",
+            "KnownRansomwareProcess",
+        )
+
+    def test_c2_beacon_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "DeviceNetworkEvents",
+            "RetailIOCWatchlist",
+            "BeaconThresh",
+            "C2BeaconToRansomwareIP",
+        )
+
+    def test_ioc_watchlist_used(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, '_GetWatchlist("RetailIOCWatchlist")')
+
+    def test_private_ip_exclusions(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, '"10."', '"192.168."', '"127.0.0.1"')
+
+    def test_union_combines_all_signals(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "MassFileRename",
+            "ShadowCopyDeletion",
+            "RansomwareProcesses",
+            "C2Beaconing",
+        )
+
+    def test_playbook_trigger_field_exposed(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "PlaybookTrigger", "isolate_endpoint")
+
+    def test_risk_score_is_100(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "RiskScore", "100")
+
+    def test_mitre_fields_in_output(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "MitreTechnique", "MitreTactic")
+
+    def test_no_hardcoded_tenant_ids(self):
+        content = load_rule(self.RULE)
+        tenant_pattern = re.compile(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            re.IGNORECASE,
+        )
+        assert not tenant_pattern.search(content), (
+            "Rule contains a hardcoded GUID — use a watchlist or parameter instead"
+        )
+
+    def test_uses_ingestion_time_not_static_timestamp(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "ingestion_time()")
+        assert_not_contains(content, "datetime(2")
+
+    def test_output_contains_required_fields(self):
+        content = load_rule(self.RULE)
+        required_fields = [
+            "DeviceName",
+            "DeviceId",
+            "ThreatSignal",
+            "ProcessCommandLine",
+            "RenameCount",
+            "SampleFiles",
+            "AffectedFolders",
+            "RemoteIP",
+            "BeaconCount",
+            "AlertSeverity",
+            "MitreTechnique",
+            "MitreTactic",
+            "PlaybookTrigger",
+            "RiskScore",
+        ]
+        for field in required_fields:
+            assert_contains(content, field)
