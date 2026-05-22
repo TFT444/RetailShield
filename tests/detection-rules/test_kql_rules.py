@@ -132,3 +132,125 @@ class TestPhishingDetection:
         ]
         for field in required_fields:
             assert_contains(content, field)
+
+
+# ── data_exfiltration.kql ─────────────────────────────────────────────────────
+
+class TestDataExfiltration:
+    RULE = "data_exfiltration.kql"
+
+    def test_file_exists(self):
+        assert (RULES_DIR / self.RULE).exists()
+
+    def test_mitre_technique_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "MITRE ATT&CK", "T1048")
+
+    def test_mitre_tactic_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Tactic", "Exfiltration")
+
+    def test_severity_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Severity", "Critical")
+
+    def test_frequency_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Frequency", "5 minutes")
+
+    def test_dns_tunneling_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "DNSTunneling",
+            "SubdomainLenThresh",
+            "DNSQueryThresh",
+        )
+
+    def test_large_outbound_transfer_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "LargeOutboundTransfer",
+            "OutboundMBThresh",
+            "SentBytes",
+        )
+
+    def test_ioc_matched_exfil_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "IOCMatchedExfilTarget",
+            "RetailIOCWatchlist",
+        )
+
+    def test_data_staging_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "DataStagingToExfil",
+            "StagingFileThresh",
+            "FileReadCount",
+        )
+
+    def test_sensitive_folder_paths_defined(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "\\customers\\",
+            "\\finance\\",
+            "\\payroll\\",
+        )
+
+    def test_private_ip_exclusions(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, '"10."', '"192.168."', '"127.0.0.1"')
+
+    def test_standard_web_ports_excluded(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "80, 443")
+
+    def test_ioc_watchlist_used(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, '_GetWatchlist("RetailIOCWatchlist")')
+
+    def test_playbook_trigger_field_exposed(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "PlaybookTrigger", "data_exfil_contain")
+
+    def test_mitre_fields_in_output(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "MitreTechnique", "MitreTactic")
+
+    def test_no_hardcoded_tenant_ids(self):
+        content = load_rule(self.RULE)
+        tenant_pattern = re.compile(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            re.IGNORECASE,
+        )
+        assert not tenant_pattern.search(content), (
+            "Rule contains a hardcoded GUID — use a watchlist or parameter instead"
+        )
+
+    def test_uses_ingestion_time_not_static_timestamp(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "ingestion_time()")
+        assert_not_contains(content, "datetime(2")
+
+    def test_output_contains_required_fields(self):
+        content = load_rule(self.RULE)
+        required_fields = [
+            "DeviceName",
+            "DeviceId",
+            "ThreatSignal",
+            "NormalisedTarget",
+            "TotalSentMB",
+            "FileReadCount",
+            "AlertSeverity",
+            "MitreTechnique",
+            "MitreTactic",
+            "PlaybookTrigger",
+            "RiskScore",
+        ]
+        for field in required_fields:
+            assert_contains(content, field)
