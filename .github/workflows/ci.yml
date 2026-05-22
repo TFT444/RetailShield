@@ -3,11 +3,11 @@ name: RetailShield CI
 on:
   push:
     branches:
-      - claude/setup-project-structure-Pievn
+      - dev
       - main
   pull_request:
     branches:
-      - claude/setup-project-structure-Pievn
+      - dev
       - main
 
 jobs:
