@@ -1,3 +1,5 @@
+# RetailShield v1.0 — by Tanvir Farhad, ShieldTech Ltd
+
 # RetailShield
 
 [![CI](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml/badge.svg)](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml)
