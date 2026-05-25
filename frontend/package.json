@@ -1,13 +1,21 @@
 {
   "name": "retailshield-dashboard",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "type": "module",
   "private": true,
-  "description": "RetailShield SOC Dashboard — placeholder, not yet implemented",
+  "description": "RetailShield SOC Dashboard — React + Vite — ShieldTech Ltd",
+  "author": "Tanvir Farhad <tanvirfarhad007@gmail.com>",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "test": "vitest"
+    "build": "vite build",
+    "preview": "vite preview"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
 }
