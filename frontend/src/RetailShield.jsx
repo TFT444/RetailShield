@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
@@ -246,6 +246,168 @@ const LIVE_THREATS = [
   },
 ]
 
+// ── Attack simulation events (5 threats, one per MITRE technique) ────────────
+const ATTACK_SIM_EVENTS = [
+  {
+    name: 'Spearphishing — CFO Impersonation [SIM]', mitre: 'T1566.001',
+    tactic: 'Initial Access', severity: 'critical', status: 'active',
+    device: 'MAIL-SIM-01', user: 'cfo@retailco.uk', time: 'just now',
+    desc: '[SIMULATION] Macro-enabled .docm attachment delivered to CFO inbox from invoice-urgent@dr4gonm4il.com. SHA256 matches RetailIOCWatchlist entry added 6 minutes ago.',
+    playbook: {
+      trigger: 'quarantine_email',
+      auto: [
+        'Email quarantined across all mailboxes via Defender for O365',
+        'Sender domain dr4gonm4il.com added to tenant block list',
+        'SHA256 hash pushed to RetailIOCWatchlist',
+        'CFO and EA notified via Teams',
+        'Incident ticket raised: #SIM-001',
+      ],
+      manual: [
+        'Confirm CFO did not open attachment before quarantine',
+        'Check for related campaign in last 72h mail gateway logs',
+        'Review sender domain registration — likely <7 days old',
+        'Escalate to CISO if attachment was executed',
+        'Submit to Microsoft MSRC threat intelligence',
+      ],
+    },
+  },
+  {
+    name: 'Credential Stuffing — POS Admin Portal [SIM]', mitre: 'T1110.004',
+    tactic: 'Credential Access', severity: 'critical', status: 'active',
+    device: 'POS-ADMIN-SIM', user: '31 accounts targeted', time: 'just now',
+    desc: '[SIMULATION] 1,247 failed logins across 31 accounts from 89 distinct IPs in 3 minutes. Credential pairs match leaked Retail Sector dump (Collection #7, 2025). 4 accounts compromised.',
+    playbook: {
+      trigger: 'block_ip',
+      auto: [
+        '89 source IPs added to Azure WAF deny rules',
+        'CAPTCHA enforcement enabled on /pos-admin/login',
+        '4 compromised accounts locked and password reset triggered',
+        'Rate limiting set to 3 attempts / 5 min per account',
+        'Indicators submitted to AbuseIPDB',
+      ],
+      manual: [
+        'Force reset all 31 targeted accounts preventatively',
+        'Check if compromised accounts accessed transaction data',
+        'Assess PCI DSS notification requirement',
+        'Tune WAF rules for similar User-Agent rotation patterns',
+        'Monitor for continued campaign over next 48h',
+      ],
+    },
+  },
+  {
+    name: 'Ransomware Staging — Mass File Encryption [SIM]', mitre: 'T1486',
+    tactic: 'Impact', severity: 'critical', status: 'active',
+    device: 'WORKSTATION-SIM-07', user: 'SYSTEM', time: 'just now',
+    desc: '[SIMULATION] 847 files renamed with .dragon3 extension in 4 minutes. vssadmin delete shadows confirmed. C2 beacon to 91.234.55.12 (DragonForce infrastructure). Endpoint being isolated.',
+    playbook: {
+      trigger: 'isolate_endpoint',
+      auto: [
+        'WORKSTATION-SIM-07 isolated via Defender for Endpoint API',
+        'Network access revoked at Azure Firewall',
+        'C2 IP 91.234.55.12 added to block list across all firewalls',
+        'Forensic memory snapshot and disk image initiated',
+        'P1 incident raised — on-call SOC paged via PagerDuty',
+      ],
+      manual: [
+        'Confirm no lateral movement to adjacent workstations',
+        'Scope shadow copy destruction across all network shares',
+        'Engage IR retainer if spread confirmed to >3 hosts',
+        'Start GDPR Art.33 72h notification clock',
+        'Prepare operational comms for store management',
+      ],
+    },
+  },
+  {
+    name: 'DNS Exfiltration — Customer Database [SIM]', mitre: 'T1048',
+    tactic: 'Exfiltration', severity: 'critical', status: 'active',
+    device: 'DB-SERVER-SIM', user: 'db_svc_account', time: 'just now',
+    desc: '[SIMULATION] 3,847 DNS queries to exfil.d4t4pipe[.]xyz with 64-char base64 subdomains over 12 minutes. 2.1 GB staged from \\\\DB-SERVER\\customers\\. DNS blocked at resolver.',
+    playbook: {
+      trigger: 'data_exfil_contain',
+      auto: [
+        'DNS to d4t4pipe[.]xyz blocked at Sentinel-managed resolver',
+        'Domain added to RetailIOCWatchlist and sinkholes',
+        'db_svc_account password reset and sessions revoked',
+        'Network flow evidence preserved in Log Analytics',
+        'DLP alert raised for \\customers\\ folder bulk read',
+      ],
+      manual: [
+        'Determine initial access vector to DB-SERVER',
+        'Assess what customer PII was staged — GDPR impact assessment',
+        'Engage Data Protection Officer immediately',
+        'Determine if exfiltration completed before DNS block',
+        'Audit db_svc_account activity for prior 72h',
+      ],
+    },
+  },
+  {
+    name: 'AI Voice Deepfake — Finance Director [SIM]', mitre: 'T1598',
+    tactic: 'Reconnaissance', severity: 'high', status: 'blocked',
+    device: 'VOIP-SIM', user: 'finance.director@retailco.uk', time: 'just now',
+    desc: '[SIMULATION] £125,000 BACS transfer request via AI voice call impersonating Regional MD. Caller asked to bypass dual-approval. AI confidence score 0.97. Payment blocked by finance team.',
+    playbook: {
+      trigger: 'notify_soc',
+      auto: [
+        'Call recording preserved under legal hold',
+        'Spoofed number added to VOIP block list',
+        'Finance team fraud awareness alert issued',
+        'Report filed with Action Fraud (ref: SIM-NCSC-2026)',
+      ],
+      manual: [
+        'Verify with Regional MD via known direct mobile',
+        'Issue mandatory voice fraud refresher to finance team',
+        'Confirm dual-approval protocol was followed correctly',
+        'Submit deepfake audio to NCSC AI threat analysis team',
+        'Update payment policy: add video call re-confirmation step',
+      ],
+    },
+  },
+  {
+    name: 'After-Hours Privileged Access — Domain Controller [SIM]', mitre: 'T1078',
+    tactic: 'Persistence', severity: 'high', status: 'active',
+    device: 'DC-SIM-PRIMARY', user: 'svc_backup_sim', time: 'just now',
+    desc: '[SIMULATION] Interactive RDP login to domain controller at 02:58 UTC from 185.220.101.47 (Tor exit node). Service account svc_backup_sim — interactive sessions are outside baseline.',
+    playbook: {
+      trigger: 'notify_soc',
+      auto: [
+        'svc_backup_sim flagged for elevated monitoring',
+        'Risky sign-in logged in Azure AD Identity Protection',
+        'SOC Teams channel alerted with full session context',
+        'Session commands captured to forensic audit trail',
+      ],
+      manual: [
+        'Verify whether svc_backup_sim ever logs in interactively',
+        'Cross-reference IP against Tor exit node list',
+        'Review all AD changes made during this session',
+        'Disable account immediately if compromise confirmed',
+        'Audit all accounts from same /24 IP range',
+      ],
+    },
+  },
+  {
+    name: 'POS Terminal Memory Scraping [SIM]', mitre: 'T1056.001',
+    tactic: 'Collection', severity: 'high', status: 'active',
+    device: 'POS-SIM-TILL-09', user: 'TILL09_PROC', time: 'just now',
+    desc: '[SIMULATION] Unknown unsigned DLL (xf99ab.dll) injected into POS process on TILL-09. Transaction volume 5.1σ above 30-day baseline. RAM scraping pattern consistent with known POS malware.',
+    playbook: {
+      trigger: 'suspend_terminal',
+      auto: [
+        'POS-SIM-TILL-09 suspended via retail management API',
+        'Store manager notified via Teams',
+        'Memory dump initiated for DLL forensic analysis',
+        'ServiceNow ticket raised with PCI DSS flag',
+      ],
+      manual: [
+        'Physically inspect TILL-09 for hardware skimmer',
+        'Pull network capture from last 4 hours on switch port',
+        'Identify origin of xf99ab.dll via software deployment logs',
+        'Assess payment card data exposure window for PCI notification',
+        'Re-image terminal before returning to service',
+      ],
+    },
+  },
+]
+
 // ── SVG Security Posture Gauge ────────────────────────────────────────────────
 function SecurityGauge({ score }) {
   const cx = 100, cy = 95, r = 72
@@ -424,6 +586,7 @@ export default function RetailShield() {
   const [score, setScore]       = useState(73)
   const [tick, setTick]         = useState(0)
   const [clock, setClock]       = useState(new Date())
+  const [simStatus, setSimStatus] = useState(null) // null | 'running' | 'complete'
 
   // Live clock
   useEffect(() => {
@@ -446,6 +609,29 @@ export default function RetailShield() {
     }, 6000)
     return () => clearInterval(id)
   }, [])
+
+  // Attack simulation — injects 5 threats one per second
+  const runAttackSimulation = useCallback(() => {
+    if (simStatus === 'running') return
+    setSimStatus('running')
+    setScore(s => Math.max(10, s - 20))
+
+    ATTACK_SIM_EVENTS.forEach((event, i) => {
+      setTimeout(() => {
+        const threat = { ...event, id: Date.now() + i, ts: Date.now() }
+        setThreats(prev => [threat, ...prev.slice(0, 14)])
+        setBanner(threat)
+        setTimeout(() => setBanner(null), 3500)
+
+        if (i === ATTACK_SIM_EVENTS.length - 1) {
+          setTimeout(() => {
+            setSimStatus('complete')
+            setTimeout(() => setSimStatus(null), 6000)
+          }, 800)
+        }
+      }, i * 800)
+    })
+  }, [simStatus])
 
   const counts = {
     total:    threats.length,
@@ -478,6 +664,41 @@ export default function RetailShield() {
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', color: C.text }}>
+
+      {/* ── Simulation status banner ── */}
+      {simStatus && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9997,
+          background: simStatus === 'running'
+            ? 'repeating-linear-gradient(90deg,#450a0a 0px,#7f1d1d 40px,#450a0a 80px)'
+            : `linear-gradient(135deg, #052e16, #166534)`,
+          borderBottom: `2px solid ${simStatus === 'running' ? C.red : C.green}`,
+          padding: '9px 24px', display: 'flex', alignItems: 'center', gap: 12,
+          boxShadow: `0 2px 24px ${simStatus === 'running' ? 'rgba(220,38,38,0.7)' : 'rgba(22,163,74,0.5)'}`,
+          animation: simStatus === 'running' ? 'simPulse 0.9s ease-in-out infinite' : 'slideIn 0.3s ease',
+        }}>
+          <span style={{ fontSize: 16 }}>{simStatus === 'running' ? '⚡' : '✅'}</span>
+          <span style={{ fontWeight: 800, fontSize: 12, textTransform: 'uppercase', letterSpacing: '1px',
+            color: simStatus === 'running' ? C.red : C.green,
+          }}>
+            {simStatus === 'running' ? 'ATTACK SIMULATION RUNNING' : 'SIMULATION COMPLETE — 7 threats injected'}
+          </span>
+          {simStatus === 'running' && (
+            <span style={{ fontSize: 11, color: C.muted }}>
+              — injecting threats into live feed...
+            </span>
+          )}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            {simStatus === 'running' && ['T1566.001','T1110.004','T1486','T1048','T1598'].map(t => (
+              <span key={t} style={{
+                fontFamily: 'monospace', fontSize: 10, color: C.red,
+                background: 'rgba(0,0,0,0.4)', padding: '2px 6px', borderRadius: 3,
+                border: `1px solid ${C.redDim}`,
+              }}>{t}</span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Live alert banner ── */}
       {banner && (
@@ -529,7 +750,7 @@ export default function RetailShield() {
         </div>
 
         {/* Right side */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <span style={{ fontSize: 11, color: C.dim }}>Microsoft Sentinel · Azure · UK Retail SOC</span>
           <span style={{ fontSize: 12, fontFamily: 'monospace', color: C.muted }}>
             {clock.toLocaleTimeString('en-GB')}
@@ -542,6 +763,30 @@ export default function RetailShield() {
               {counts.active} ACTIVE
             </span>
           </div>
+          <button
+            onClick={runAttackSimulation}
+            disabled={simStatus === 'running'}
+            style={{
+              background: simStatus === 'running'
+                ? 'transparent'
+                : `linear-gradient(135deg, ${C.red}, #b91c1c)`,
+              color: simStatus === 'running' ? C.red : '#fff',
+              border: `1.5px solid ${C.red}`,
+              borderRadius: 7,
+              padding: '7px 16px',
+              fontSize: 11,
+              fontWeight: 800,
+              letterSpacing: '0.6px',
+              textTransform: 'uppercase',
+              cursor: simStatus === 'running' ? 'not-allowed' : 'pointer',
+              boxShadow: simStatus === 'running' ? 'none' : `0 0 14px ${C.red}60`,
+              animation: simStatus === 'running' ? 'urgentPulse 0.7s ease-in-out infinite' : 'none',
+              transition: 'box-shadow 0.2s, background 0.2s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {simStatus === 'running' ? '⚡ RUNNING…' : '⚡ SIMULATE ATTACK'}
+          </button>
         </div>
       </header>
 
@@ -746,8 +991,10 @@ export default function RetailShield() {
 
       {/* Global styles */}
       <style>{`
-        @keyframes slideIn  { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        @keyframes pulse    { 0%,100% { opacity: 1; box-shadow: 0 0 6px currentColor; } 50% { opacity: 0.3; box-shadow: none; } }
+        @keyframes slideIn      { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes pulse        { 0%,100% { opacity: 1; box-shadow: 0 0 6px currentColor; } 50% { opacity: 0.3; box-shadow: none; } }
+        @keyframes simPulse     { 0%,100% { opacity: 1; } 50% { opacity: 0.75; } }
+        @keyframes urgentPulse  { 0%,100% { box-shadow: 0 0 14px rgba(220,38,38,0.8); } 50% { box-shadow: 0 0 4px rgba(220,38,38,0.2); } }
         ::-webkit-scrollbar       { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: ${C.surface}; }
         ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
