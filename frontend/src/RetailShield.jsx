@@ -408,6 +408,143 @@ const ATTACK_SIM_EVENTS = [
   },
 ]
 
+// ── CVE Vulnerability Scanner data ───────────────────────────────────────────
+const VULN_INITIAL = {
+  lastScan: '2026-05-28T06:00:00Z',
+  totalAssets: 18,
+  summary: { critical: 8, high: 22, medium: 4, low: 0 },
+  findings: [
+    {
+      id: 'POS-TILL-01', product: 'Oracle Xstore POS', version: '8.1',
+      location: 'Hounslow Branch', cat: 'POS System',
+      vulns: [
+        { cve: 'CVE-2025-44123', cvss: 9.8, sev: 'critical', title: 'Unauthenticated RCE via Java deserialization in config sync', patch: true, exploit: true, mitre: 'T1190' },
+        { cve: 'CVE-2025-31847', cvss: 8.8, sev: 'high', title: 'SQL injection in transaction reporting module', patch: true, exploit: false, mitre: 'T1190' },
+      ],
+    },
+    {
+      id: 'POS-TILL-03', product: 'NCR Aloha POS', version: '12.3',
+      location: 'Hammersmith Branch', cat: 'POS System',
+      vulns: [
+        { cve: 'CVE-2025-19284', cvss: 9.1, sev: 'critical', title: 'Authentication bypass via malformed session token', patch: true, exploit: true, mitre: 'T1078' },
+        { cve: 'CVE-2024-52891', cvss: 7.8, sev: 'high', title: 'Local privilege escalation via insecure service dir', patch: true, exploit: false, mitre: 'T1068' },
+      ],
+    },
+    {
+      id: 'POS-TILL-05', product: 'Toshiba TCx POS', version: '5.2',
+      location: 'Ealing Branch', cat: 'POS System',
+      vulns: [
+        { cve: 'CVE-2025-08374', cvss: 8.1, sev: 'high', title: 'Stack buffer overflow in EMV payment parsing library', patch: true, exploit: false, mitre: 'T1203' },
+        { cve: 'CVE-2024-47203', cvss: 6.5, sev: 'medium', title: 'Plaintext credentials in world-readable config files', patch: true, exploit: false, mitre: 'T1083' },
+      ],
+    },
+    {
+      id: 'POS-TILL-06', product: 'Verifone POS', version: '3.4',
+      location: 'Ealing Branch', cat: 'POS System',
+      vulns: [
+        { cve: 'CVE-2025-22916', cvss: 9.1, sev: 'critical', title: 'Hardcoded admin credentials in management daemon', patch: true, exploit: true, mitre: 'T1078' },
+        { cve: 'CVE-2024-38847', cvss: 7.5, sev: 'high', title: 'IDOR allows access to other terminals\' transactions', patch: true, exploit: false, mitre: 'T1083' },
+      ],
+    },
+    {
+      id: 'ERP-DYN-01', product: 'Microsoft Dynamics Retail', version: '10.0.28',
+      location: 'Head Office', cat: 'Stock Management',
+      vulns: [
+        { cve: 'CVE-2024-61834', cvss: 9.3, sev: 'critical', title: 'Authentication bypass via malformed OAuth token', patch: true, exploit: true, mitre: 'T1078' },
+        { cve: 'CVE-2025-17293', cvss: 8.2, sev: 'high', title: 'XXE injection in product import — reads server files', patch: true, exploit: false, mitre: 'T1190' },
+      ],
+    },
+    {
+      id: 'ERP-ORA-01', product: 'Oracle Retail Merchandising', version: '21.0',
+      location: 'Head Office', cat: 'Stock Management',
+      vulns: [
+        { cve: 'CVE-2025-29481', cvss: 9.8, sev: 'critical', title: 'RCE via deserialization in merchandise planning API', patch: true, exploit: true, mitre: 'T1190' },
+        { cve: 'CVE-2024-73921', cvss: 7.5, sev: 'high', title: 'Path traversal in report download endpoint', patch: true, exploit: false, mitre: 'T1083' },
+      ],
+    },
+    {
+      id: 'ERP-SAP-01', product: 'SAP Retail', version: 'S/4HANA 2021',
+      location: 'Head Office', cat: 'Stock Management',
+      vulns: [
+        { cve: 'CVE-2025-55921', cvss: 8.6, sev: 'high', title: 'SSRF in integration layer exposes internal metadata', patch: true, exploit: false, mitre: 'T1190' },
+        { cve: 'CVE-2025-43782', cvss: 7.4, sev: 'high', title: 'Stored XSS in product catalogue via supplier input', patch: true, exploit: false, mitre: 'T1059.007' },
+      ],
+    },
+    {
+      id: 'ERP-JDA-01', product: 'JDA Supply Chain', version: '9.2',
+      location: 'Head Office', cat: 'Stock Management',
+      vulns: [
+        { cve: 'CVE-2024-44918', cvss: 8.1, sev: 'high', title: 'SQL injection in order management module', patch: true, exploit: false, mitre: 'T1190' },
+        { cve: 'CVE-2025-61204', cvss: 7.5, sev: 'high', title: 'IDOR exposes competitor purchase orders', patch: true, exploit: false, mitre: 'T1083' },
+      ],
+    },
+    {
+      id: 'TERM-VFN-01', product: 'Verifone VX520', version: '2.1.0',
+      location: 'Hounslow Branch', cat: 'Payment Terminal',
+      vulns: [
+        { cve: 'CVE-2025-33741', cvss: 9.4, sev: 'critical', title: 'PIN block extraction via differential power analysis', patch: true, exploit: false, mitre: 'T1056.001' },
+        { cve: 'CVE-2024-55847', cvss: 7.8, sev: 'high', title: 'Unsigned firmware accepted via ARP-spoofed update server', patch: true, exploit: false, mitre: 'T1542' },
+      ],
+    },
+    {
+      id: 'TERM-PAX-01', product: 'PAX S920', version: '1.2',
+      location: 'Hounslow Branch', cat: 'Payment Terminal',
+      vulns: [
+        { cve: 'CVE-2025-37482', cvss: 9.8, sev: 'critical', title: 'RCE via malformed EMV TLV packet over merchant LAN', patch: true, exploit: true, mitre: 'T1190' },
+        { cve: 'CVE-2025-21847', cvss: 8.4, sev: 'high', title: 'Root shell exposed via USB diagnostic interface', patch: true, exploit: true, mitre: 'T1059' },
+      ],
+    },
+    {
+      id: 'TERM-ING-01', product: 'Ingenico iCT250', version: '6.0.0',
+      location: 'Ealing Branch', cat: 'Payment Terminal',
+      vulns: [
+        { cve: 'CVE-2025-48293', cvss: 8.8, sev: 'high', title: 'Memory corruption in NFC NDEF handler — RCE via card', patch: true, exploit: false, mitre: 'T1203' },
+        { cve: 'CVE-2024-92841', cvss: 7.6, sev: 'high', title: 'Static Bluetooth PIN 0000 — relay attack possible', patch: true, exploit: true, mitre: 'T1557' },
+      ],
+    },
+    {
+      id: 'TERM-VFN-02', product: 'Verifone P400', version: '3.0.1',
+      location: 'Hammersmith Branch', cat: 'Payment Terminal',
+      vulns: [
+        { cve: 'CVE-2025-12847', cvss: 8.0, sev: 'high', title: 'Firmware downgrade attack via USB maintenance port', patch: true, exploit: false, mitre: 'T1542.001' },
+        { cve: 'CVE-2024-38291', cvss: 6.8, sev: 'medium', title: 'Weak TLS cipher suites (RC4/3DES) accepted in payment comms', patch: true, exploit: false, mitre: 'T1600' },
+      ],
+    },
+    {
+      id: 'PLAT-SHP-01', product: 'Shopify POS', version: '9.1.0',
+      location: 'Online', cat: 'Retail Platform',
+      vulns: [
+        { cve: 'CVE-2025-28473', cvss: 8.1, sev: 'high', title: 'Certificate pinning bypass enables on-path MITM attack', patch: true, exploit: false, mitre: 'T1557' },
+        { cve: 'CVE-2025-41928', cvss: 7.5, sev: 'high', title: 'API secret key exposed in iOS app bundle plist', patch: true, exploit: false, mitre: 'T1552.001' },
+      ],
+    },
+    {
+      id: 'PLAT-SQR-01', product: 'Square POS', version: '5.28',
+      location: 'Online', cat: 'Retail Platform',
+      vulns: [
+        { cve: 'CVE-2025-53847', cvss: 8.8, sev: 'high', title: 'No TLS cert validation — accepts self-signed certs', patch: true, exploit: false, mitre: 'T1557.001' },
+        { cve: 'CVE-2024-82941', cvss: 7.4, sev: 'high', title: 'Bluetooth pairing replay attack on card reader', patch: true, exploit: false, mitre: 'T1557' },
+      ],
+    },
+    {
+      id: 'PLAT-LSP-01', product: 'Lightspeed Retail', version: '2024.1',
+      location: 'Online', cat: 'Retail Platform',
+      vulns: [
+        { cve: 'CVE-2025-44821', cvss: 8.6, sev: 'high', title: 'Path traversal in file export reads server credentials', patch: true, exploit: false, mitre: 'T1083' },
+        { cve: 'CVE-2024-63947', cvss: 7.1, sev: 'medium', title: 'CSRF token reuse allows unauthorised admin actions', patch: true, exploit: false, mitre: 'T1059.007' },
+      ],
+    },
+    {
+      id: 'PLAT-RVL-01', product: 'Revel POS', version: '4.7',
+      location: 'Online', cat: 'Retail Platform',
+      vulns: [
+        { cve: 'CVE-2025-17482', cvss: 9.1, sev: 'critical', title: 'Hardcoded default admin credentials in iPad management', patch: true, exploit: true, mitre: 'T1078' },
+        { cve: 'CVE-2024-57291', cvss: 6.8, sev: 'medium', title: 'Card tokens stored in unencrypted local SQLite DB', patch: true, exploit: false, mitre: 'T1005' },
+      ],
+    },
+  ],
+}
+
 // ── SVG Security Posture Gauge ────────────────────────────────────────────────
 function SecurityGauge({ score }) {
   const cx = 100, cy = 95, r = 72
@@ -587,6 +724,9 @@ export default function RetailShield() {
   const [tick, setTick]         = useState(0)
   const [clock, setClock]       = useState(new Date())
   const [simStatus, setSimStatus] = useState(null) // null | 'running' | 'complete'
+  const [vulnData, setVulnData]   = useState(VULN_INITIAL)
+  const [vulnScan, setVulnScan]   = useState(null) // null | 'scanning' | 'done'
+  const [vulnProg, setVulnProg]   = useState(0)
 
   // Live clock
   useEffect(() => {
@@ -632,6 +772,28 @@ export default function RetailShield() {
       }, i * 800)
     })
   }, [simStatus])
+
+  const runVulnScan = useCallback(() => {
+    if (vulnScan === 'scanning') return
+    setVulnScan('scanning')
+    setVulnProg(0)
+    let p = 0
+    const step = setInterval(() => {
+      p += Math.random() * 14 + 4
+      if (p >= 100) {
+        p = 100
+        clearInterval(step)
+        setVulnProg(100)
+        setTimeout(() => {
+          setVulnData({ ...VULN_INITIAL, lastScan: new Date().toISOString() })
+          setVulnScan('done')
+          setTimeout(() => setVulnScan(null), 4000)
+        }, 400)
+      } else {
+        setVulnProg(Math.round(p))
+      }
+    }, 200)
+  }, [vulnScan])
 
   const counts = {
     total:    threats.length,
@@ -930,6 +1092,197 @@ export default function RetailShield() {
           </div>
         </div>
 
+        {/* CVE Vulnerability Scanner */}
+        <div style={{ ...s.card, padding: '20px 24px', marginBottom: 18, position: 'relative', overflow: 'hidden' }}>
+
+          {/* Scanning overlay */}
+          {vulnScan === 'scanning' && (
+            <div style={{
+              position: 'absolute', inset: 0, background: 'rgba(8,8,8,0.88)', zIndex: 10,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20,
+            }}>
+              <div style={{ fontSize: 13, color: C.blue, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', animation: 'scanPulse 1s ease-in-out infinite' }}>
+                Scanning Retail Infrastructure...
+              </div>
+              <div style={{ width: 340, height: 8, background: C.border, borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', width: `${vulnProg}%`, borderRadius: 4,
+                  background: `linear-gradient(90deg, ${C.blue}, ${C.red})`,
+                  boxShadow: `0 0 12px ${C.blue}80`,
+                  transition: 'width 0.2s ease',
+                }} />
+              </div>
+              <div style={{ fontSize: 11, color: C.muted, fontFamily: 'monospace' }}>
+                Checking {vulnData.totalAssets} assets against 32 retail CVEs — {vulnProg}%
+              </div>
+            </div>
+          )}
+
+          {/* Header row */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <div>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>CVE Vulnerability Scanner — Retail Stack</span>
+              <div style={{ fontSize: 11, color: C.dim, marginTop: 3 }}>
+                Last scan: {new Date(vulnData.lastScan).toLocaleString('en-GB')} ·{' '}
+                {vulnData.totalAssets} assets · {vulnData.findings.length} vulnerable
+                {vulnScan === 'done' && (
+                  <span style={{ color: C.green, marginLeft: 8, fontWeight: 700 }}>✓ Scan complete</span>
+                )}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* Severity badges */}
+              {[
+                { label: 'CRITICAL', val: vulnData.summary.critical, color: C.red },
+                { label: 'HIGH',     val: vulnData.summary.high,     color: C.orange },
+                { label: 'MEDIUM',   val: vulnData.summary.medium,   color: C.yellow },
+                { label: 'LOW',      val: vulnData.summary.low,      color: C.blue },
+              ].map(({ label, val, color }) => (
+                <div key={label} style={{
+                  background: `${color}18`, border: `1px solid ${color}50`,
+                  borderRadius: 6, padding: '5px 12px', textAlign: 'center',
+                }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color, fontFamily: 'monospace', lineHeight: 1 }}>{val}</div>
+                  <div style={{ fontSize: 9, color, opacity: 0.8, marginTop: 2, letterSpacing: '0.5px' }}>{label}</div>
+                </div>
+              ))}
+              <button
+                onClick={runVulnScan}
+                disabled={vulnScan === 'scanning'}
+                style={{
+                  background: vulnScan === 'scanning'
+                    ? 'transparent'
+                    : `linear-gradient(135deg, ${C.blue}, #1d4ed8)`,
+                  color: vulnScan === 'scanning' ? C.blue : '#fff',
+                  border: `1.5px solid ${C.blue}`,
+                  borderRadius: 7, padding: '8px 16px',
+                  fontSize: 11, fontWeight: 800, letterSpacing: '0.6px',
+                  textTransform: 'uppercase', cursor: vulnScan === 'scanning' ? 'not-allowed' : 'pointer',
+                  boxShadow: vulnScan === 'scanning' ? 'none' : `0 0 14px ${C.blue}50`,
+                  whiteSpace: 'nowrap',
+                  animation: vulnScan === 'scanning' ? 'scanPulse 0.8s ease-in-out infinite' : 'none',
+                  transition: 'box-shadow 0.2s, background 0.2s',
+                }}
+              >
+                {vulnScan === 'scanning' ? `🔍 SCANNING ${vulnProg}%` : '🔍 RUN VULNERABILITY SCAN'}
+              </button>
+            </div>
+          </div>
+
+          {/* Vulnerability table */}
+          <div style={{
+            border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden',
+          }}>
+            {/* Table header */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '130px 1fr 90px 140px 90px 80px 100px',
+              gap: 0,
+              background: C.surface,
+              padding: '8px 14px',
+              borderBottom: `1px solid ${C.border}`,
+            }}>
+              {['ASSET ID', 'CVE / DESCRIPTION', 'CVSS', 'PRODUCT', 'VERSION', 'SEVERITY', 'PATCH'].map(h => (
+                <span key={h} style={{ fontSize: 10, color: C.dim, fontWeight: 700, letterSpacing: '0.5px' }}>{h}</span>
+              ))}
+            </div>
+
+            {/* Scrollable rows */}
+            <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+              {vulnData.findings.flatMap(f =>
+                f.vulns.map((v, vi) => {
+                  const sevColor = SEV[v.sev] || C.muted
+                  return (
+                    <div
+                      key={`${f.id}-${v.cve}`}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '130px 1fr 90px 140px 90px 80px 100px',
+                        gap: 0,
+                        padding: '10px 14px',
+                        borderBottom: `1px solid ${C.border}`,
+                        borderLeft: `3px solid ${sevColor}`,
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      {/* Asset ID — only show on first vuln row */}
+                      <div style={{ fontSize: 11, fontFamily: 'monospace', color: C.red, fontWeight: 700, alignSelf: 'center' }}>
+                        {vi === 0 ? f.id : ''}
+                      </div>
+                      {/* CVE + description */}
+                      <div style={{ alignSelf: 'center', paddingRight: 12 }}>
+                        <div style={{ fontSize: 11, fontFamily: 'monospace', color: C.text, fontWeight: 700, marginBottom: 2 }}>
+                          {v.cve}
+                          {v.exploit && (
+                            <span style={{ marginLeft: 6, fontSize: 9, color: C.red, background: `${C.red}20`, padding: '1px 5px', borderRadius: 3, border: `1px solid ${C.red}40` }}>
+                              EXPLOIT
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.4 }}>{v.title}</div>
+                        <div style={{ fontSize: 10, color: C.dim, marginTop: 2, fontFamily: 'monospace' }}>
+                          MITRE: {v.mitre}
+                        </div>
+                      </div>
+                      {/* CVSS score */}
+                      <div style={{ alignSelf: 'center' }}>
+                        <span style={{
+                          fontSize: 14, fontWeight: 800, fontFamily: 'monospace', color: sevColor,
+                          textShadow: `0 0 8px ${sevColor}60`,
+                        }}>{v.cvss}</span>
+                      </div>
+                      {/* Product */}
+                      <div style={{ fontSize: 11, color: C.muted, alignSelf: 'center' }}>
+                        {vi === 0 ? f.product : ''}
+                      </div>
+                      {/* Version */}
+                      <div style={{ alignSelf: 'center' }}>
+                        {vi === 0 && (
+                          <span style={{ fontSize: 10, fontFamily: 'monospace', background: C.surface, border: `1px solid ${C.border}`, padding: '2px 7px', borderRadius: 4, color: C.muted }}>
+                            v{f.version}
+                          </span>
+                        )}
+                      </div>
+                      {/* Severity */}
+                      <div style={{ alignSelf: 'center' }}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, color: sevColor,
+                          background: `${sevColor}18`, padding: '3px 8px',
+                          borderRadius: 4, textTransform: 'uppercase',
+                        }}>{v.sev}</span>
+                      </div>
+                      {/* Patch status */}
+                      <div style={{ alignSelf: 'center' }}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 600,
+                          color: v.patch ? C.green : C.red,
+                        }}>{v.patch ? '✓ Available' : '✗ No patch'}</span>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Footer stats */}
+          <div style={{ display: 'flex', gap: 20, marginTop: 14, flexWrap: 'wrap' }}>
+            {[
+              { label: 'Assets Scanned',    val: vulnData.totalAssets, color: C.text },
+              { label: 'Total CVEs',         val: vulnData.summary.critical + vulnData.summary.high + vulnData.summary.medium + vulnData.summary.low, color: C.text },
+              { label: 'Patch Available',    val: vulnData.findings.reduce((n, f) => n + f.vulns.filter(v => v.patch).length, 0), color: C.green },
+              { label: 'Public Exploits',    val: vulnData.findings.reduce((n, f) => n + f.vulns.filter(v => v.exploit).length, 0), color: C.red },
+            ].map(({ label, val, color }) => (
+              <div key={label} style={{ background: C.surface, borderRadius: 6, padding: '8px 14px', display: 'flex', gap: 10, alignItems: 'center' }}>
+                <span style={{ fontSize: 18, fontWeight: 800, color, fontFamily: 'monospace' }}>{val}</span>
+                <span style={{ fontSize: 11, color: C.dim }}>{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Emergency contacts */}
         <div style={{ ...s.card, padding: '20px 24px' }}>
           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 16 }}>🆘 Emergency Contacts</div>
@@ -995,6 +1348,7 @@ export default function RetailShield() {
         @keyframes pulse        { 0%,100% { opacity: 1; box-shadow: 0 0 6px currentColor; } 50% { opacity: 0.3; box-shadow: none; } }
         @keyframes simPulse     { 0%,100% { opacity: 1; } 50% { opacity: 0.75; } }
         @keyframes urgentPulse  { 0%,100% { box-shadow: 0 0 14px rgba(220,38,38,0.8); } 50% { box-shadow: 0 0 4px rgba(220,38,38,0.2); } }
+        @keyframes scanPulse    { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
         ::-webkit-scrollbar       { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: ${C.surface}; }
         ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
