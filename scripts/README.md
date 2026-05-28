@@ -13,6 +13,144 @@ Utility scripts for the RetailShield Microsoft Sentinel detection platform.
 | `validate_kql.py` | Validates all KQL detection rules for metadata, syntax, and table references |
 | `validate_logicapps.py` | Validates Logic App ARM templates as valid JSON with required schema keys |
 | `retail_log_generator.py` | Generates synthetic retail logs and ships them to a Sentinel workspace |
+| `cve_scanner.py` | Scans simulated retail infrastructure against the retail CVE database |
+| `cve_database.json` | 32 retail-specific CVEs covering POS, payment terminals, stock management, and retail platforms |
+
+---
+
+## cve_scanner.py
+
+Scans simulated retail infrastructure against `cve_database.json` — a database of 32 retail-specific CVEs covering POS systems, payment terminals, stock management platforms, and retail applications. Identifies vulnerable assets, CVSS scores, MITRE ATT&CK mappings, and patch status.
+
+This addresses the gap left by generic CVE scanners that have no awareness of retail-specific software stacks.
+
+### Prerequisites
+
+No third-party dependencies — uses Python standard library only.
+
+```bash
+python --version   # Python 3.8+
+```
+
+### Usage
+
+```bash
+# Deep scan — all categories, text output (default)
+python cve_scanner.py
+
+# Quick scan — POS systems + payment terminals only
+python cve_scanner.py --mode quick
+
+# Deep scan with JSON report saved to file
+python cve_scanner.py --mode deep --output json --out-file report.json
+
+# Dry run — scan and print first 3 findings to console, no file written
+python cve_scanner.py --dry-run
+```
+
+### Flags
+
+| Flag | Description | Default |
+|---|---|---|
+| `--mode` | `quick` (POS + terminals) or `deep` (all 4 categories) | `deep` |
+| `--output` | `text` (human-readable) or `json` (machine-readable) | `text` |
+| `--dry-run` | Print first 3 findings to console, no file written | off |
+| `--out-file` | Filename for JSON output | `cve_report.json` |
+
+### Scan Modes
+
+| Mode | Categories Scanned | Use Case |
+|---|---|---|
+| `quick` | POS systems, payment terminals | Fast daily scan of customer-facing hardware |
+| `deep` | POS systems, stock management, payment terminals, retail platforms | Full weekly infrastructure review |
+
+---
+
+## cve_database.json
+
+Retail-specific CVE database with 32 vulnerabilities across 4 categories. Each CVE includes:
+
+| Field | Description |
+|---|---|
+| `cve_id` | CVE identifier (e.g. `CVE-2025-44123`) |
+| `cvss_score` | CVSS v3.1 base score (0.0 – 10.0) |
+| `severity` | `critical` / `high` / `medium` / `low` |
+| `product` | Affected retail software |
+| `vendor` | Software vendor |
+| `category` | `pos_system` / `stock_management` / `payment_terminal` / `retail_platform` |
+| `affected_versions` | List of vulnerable version strings |
+| `fixed_version` | First patched version |
+| `description` | Technical vulnerability description |
+| `mitre_technique` | MITRE ATT&CK technique ID |
+| `mitre_tactic` | MITRE ATT&CK tactic |
+| `patch_available` | Whether a patch has been released |
+| `exploit_available` | Whether a public exploit exists |
+| `published_date` | CVE publication date |
+| `cvss_vector` | Full CVSS v3.1 vector string |
+
+### Coverage
+
+| Category | Products Covered | CVEs |
+|---|---|---|
+| POS Systems | Oracle Xstore, NCR Aloha, Toshiba TCx, Verifone POS | 8 |
+| Stock Management | SAP Retail, Microsoft Dynamics Retail, Oracle Retail Merchandising, JDA Supply Chain | 8 |
+| Payment Terminals | Verifone VX520, Verifone P400, Ingenico iCT250, PAX S920 | 8 |
+| Retail Platforms | Shopify POS, Square POS, Lightspeed Retail, Revel POS | 8 |
+
+### Sample Output — Text Mode
+
+```
+╔══════════════════════════════════════════════════════════════════════╗
+║  RetailShield CVE Vulnerability Scanner — Scan Report               ║
+║  ShieldTech Ltd · Tanvir Farhad · 2026                              ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Scan ID    : RS-SCAN-20260528-143022
+  Timestamp  : 2026-05-28T14:30:22Z
+  Mode       : DEEP
+  Assets     : 18 scanned / 18 total
+  Vulnerable : 18 assets
+  CVEs found : 36
+
+  Severity Breakdown:
+    CRITICAL                           8
+    HIGH                              24
+    MEDIUM                             4
+
+────────────────────────────────────────────────────────────────────────
+  ASSET ID               PRODUCT                           CVEs
+────────────────────────────────────────────────────────────────────────
+  POS-TILL-01            Oracle Xstore POS                    2
+    CVE-2025-44123       CVSS 9.8  CRITICAL  ✓ Patch available [EXPLOIT PUBLIC]
+    MITRE: T1190 — Initial Access
+    ...
+```
+
+### Sample Output — JSON Mode
+
+```json
+{
+  "scan_id": "RS-SCAN-20260528-143022",
+  "timestamp": "2026-05-28T14:30:22Z",
+  "mode": "deep",
+  "total_assets": 18,
+  "assets_scanned": 18,
+  "assets_vulnerable": 18,
+  "vulnerabilities_found": 36,
+  "summary": { "critical": 8, "high": 24, "medium": 4, "low": 0 },
+  "findings": [
+    {
+      "asset_id": "POS-TILL-01",
+      "product": "Oracle Xstore POS",
+      "version": "8.1",
+      "location": "Hounslow Branch",
+      "vulnerabilities": [ ... ]
+    }
+  ]
+}
+```
+
+---
 
 ---
 
