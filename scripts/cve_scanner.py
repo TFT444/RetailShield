@@ -1,140 +1,99 @@
+#!/usr/bin/env python3
 """
-RetailShield — Retail CVE Vulnerability Scanner
-ShieldTech Ltd | Tanvir Farhad | 2026
-github.com/TFT444/RetailShield
-
-Scans simulated retail infrastructure against a retail-specific CVE database.
-Identifies known vulnerabilities in POS systems, payment terminals, stock
-management platforms, and retail applications before attackers exploit them.
+RetailShield — CVE Vulnerability Scanner
+Scans a simulated retail infrastructure asset inventory against a
+curated database of retail-specific CVEs.
 
 Usage:
-  python cve_scanner.py --mode deep --output text
-  python cve_scanner.py --mode quick --output json
-  python cve_scanner.py --dry-run
-  python cve_scanner.py --mode deep --output json --out-file report.json
+    python cve_scanner.py [--mode quick|deep] [--output text|json] [--dry-run]
+
+Requires: Python 3.9+ (stdlib only, no third-party dependencies)
 """
 
-import argparse
-import datetime
 import json
-import os
 import sys
+import argparse
+import os
+from datetime import datetime, timezone
+from pathlib import Path
 
-CVE_DATABASE_PATH = os.path.join(os.path.dirname(__file__), "cve_database.json")
+# ── Paths ──────────────────────────────────────────────────────────────────────
+SCRIPT_DIR = Path(__file__).parent
+CVE_DB_PATH = SCRIPT_DIR / "cve_database.json"
+OUTPUT_DIR = SCRIPT_DIR.parent / "scan-results"
 
-RETAIL_ASSETS = [
-    # ── POS Systems ──────────────────────────────────────────────────────────
-    {
-        "asset_id": "POS-TILL-01", "product": "Oracle Xstore POS", "vendor": "Oracle",
-        "version": "8.1", "category": "pos_system",
-        "location": "Hounslow Branch", "ip": "10.1.1.101",
-    },
-    {
-        "asset_id": "POS-TILL-02", "product": "Oracle Xstore POS", "vendor": "Oracle",
-        "version": "8.1", "category": "pos_system",
-        "location": "Hounslow Branch", "ip": "10.1.1.102",
-    },
-    {
-        "asset_id": "POS-TILL-03", "product": "NCR Aloha POS", "vendor": "NCR",
-        "version": "12.3", "category": "pos_system",
-        "location": "Hammersmith Branch", "ip": "10.2.1.101",
-    },
-    {
-        "asset_id": "POS-TILL-04", "product": "NCR Aloha POS", "vendor": "NCR",
-        "version": "12.3", "category": "pos_system",
-        "location": "Hammersmith Branch", "ip": "10.2.1.102",
-    },
-    {
-        "asset_id": "POS-TILL-05", "product": "Toshiba TCx POS", "vendor": "Toshiba",
-        "version": "5.2", "category": "pos_system",
-        "location": "Ealing Branch", "ip": "10.3.1.101",
-    },
-    {
-        "asset_id": "POS-TILL-06", "product": "Verifone POS", "vendor": "Verifone",
-        "version": "3.4", "category": "pos_system",
-        "location": "Ealing Branch", "ip": "10.3.1.102",
-    },
-    # ── Stock Management ─────────────────────────────────────────────────────
-    {
-        "asset_id": "ERP-SAP-01", "product": "SAP Retail", "vendor": "SAP",
-        "version": "S/4HANA 2021", "category": "stock_management",
-        "location": "Head Office", "ip": "10.0.1.10",
-    },
-    {
-        "asset_id": "ERP-DYN-01", "product": "Microsoft Dynamics Retail", "vendor": "Microsoft",
-        "version": "10.0.28", "category": "stock_management",
-        "location": "Head Office", "ip": "10.0.1.11",
-    },
-    {
-        "asset_id": "ERP-ORA-01", "product": "Oracle Retail Merchandising", "vendor": "Oracle",
-        "version": "21.0", "category": "stock_management",
-        "location": "Head Office", "ip": "10.0.1.12",
-    },
-    {
-        "asset_id": "ERP-JDA-01", "product": "JDA Supply Chain", "vendor": "JDA",
-        "version": "9.2", "category": "stock_management",
-        "location": "Head Office", "ip": "10.0.1.13",
-    },
-    # ── Payment Terminals ────────────────────────────────────────────────────
-    {
-        "asset_id": "TERM-VFN-01", "product": "Verifone VX520", "vendor": "Verifone",
-        "version": "2.1.0", "category": "payment_terminal",
-        "location": "Hounslow Branch", "ip": "10.1.2.10",
-    },
-    {
-        "asset_id": "TERM-VFN-02", "product": "Verifone P400", "vendor": "Verifone",
-        "version": "3.0.1", "category": "payment_terminal",
-        "location": "Hammersmith Branch", "ip": "10.2.2.10",
-    },
-    {
-        "asset_id": "TERM-ING-01", "product": "Ingenico iCT250", "vendor": "Ingenico",
-        "version": "6.0.0", "category": "payment_terminal",
-        "location": "Ealing Branch", "ip": "10.3.2.10",
-    },
-    {
-        "asset_id": "TERM-PAX-01", "product": "PAX S920", "vendor": "PAX",
-        "version": "1.2", "category": "payment_terminal",
-        "location": "Hounslow Branch", "ip": "10.1.2.11",
-    },
-    # ── Retail Platforms ─────────────────────────────────────────────────────
-    {
-        "asset_id": "PLAT-SHP-01", "product": "Shopify POS", "vendor": "Shopify",
-        "version": "9.1.0", "category": "retail_platform",
-        "location": "Online", "ip": "N/A",
-    },
-    {
-        "asset_id": "PLAT-SQR-01", "product": "Square POS", "vendor": "Square",
-        "version": "5.28", "category": "retail_platform",
-        "location": "Online", "ip": "N/A",
-    },
-    {
-        "asset_id": "PLAT-LSP-01", "product": "Lightspeed Retail", "vendor": "Lightspeed",
-        "version": "2024.1", "category": "retail_platform",
-        "location": "Online", "ip": "N/A",
-    },
-    {
-        "asset_id": "PLAT-RVL-01", "product": "Revel POS", "vendor": "Revel",
-        "version": "4.7", "category": "retail_platform",
-        "location": "Online", "ip": "N/A",
-    },
-]
-
-QUICK_CATEGORIES = {"pos_system", "payment_terminal"}
-
-SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-SEV_COLOURS = {
-    "critical": "\033[91m",   # bright red
-    "high":     "\033[93m",   # yellow
-    "medium":   "\033[94m",   # blue
-    "low":      "\033[92m",   # green
+# ── ANSI colour codes ──────────────────────────────────────────────────────────
+COLOURS = {
+    "red":      "\033[91m",
+    "orange":   "\033[93m",
+    "yellow":   "\033[33m",
+    "green":    "\033[92m",
+    "blue":     "\033[94m",
+    "bold":     "\033[1m",
+    "dim":      "\033[2m",
     "reset":    "\033[0m",
 }
+
+SEV_COLOUR = {
+    "critical": COLOURS["red"],
+    "high":     COLOURS["orange"],
+    "medium":   COLOURS["yellow"],
+    "low":      COLOURS["green"],
+}
+
+# ── Simulated retail asset inventory ──────────────────────────────────────────
+ASSETS = [
+    # POS Systems
+    {"id": "POS-TILL-01", "product": "Oracle Xstore POS",
+     "version": "8.1",  "location": "Hounslow Branch",    "cat": "pos"},
+    {"id": "POS-TILL-03", "product": "NCR Aloha POS",
+     "version": "12.3", "location": "Hammersmith Branch", "cat": "pos"},
+    {"id": "POS-TILL-05", "product": "Toshiba TCx POS",
+     "version": "5.2",  "location": "Ealing Branch",      "cat": "pos"},
+    {"id": "POS-TILL-06", "product": "Verifone POS",
+     "version": "3.4",  "location": "Ealing Branch",      "cat": "pos"},
+    # Stock Management
+    {"id": "ERP-DYN-01",  "product": "Microsoft Dynamics Retail",
+     "version": "10.0.28", "location": "Head Office",     "cat": "stock"},
+    {"id": "ERP-ORA-01",  "product": "Oracle Retail Merchandising",
+     "version": "21.0",    "location": "Head Office",     "cat": "stock"},
+    {"id": "ERP-SAP-01",  "product": "SAP Retail",
+     "version": "S/4HANA 2021", "location": "Head Office", "cat": "stock"},
+    {"id": "ERP-JDA-01",  "product": "JDA Supply Chain",
+     "version": "9.2",    "location": "Head Office",      "cat": "stock"},
+    # Payment Terminals
+    {"id": "TERM-VFN-01", "product": "Verifone VX520",
+     "version": "2.1.0", "location": "Hounslow Branch",   "cat": "terminal"},
+    {"id": "TERM-PAX-01", "product": "PAX S920",
+     "version": "1.2",   "location": "Hounslow Branch",   "cat": "terminal"},
+    {"id": "TERM-ING-01", "product": "Ingenico iCT250",
+     "version": "6.0.0", "location": "Ealing Branch",     "cat": "terminal"},
+    {"id": "TERM-VFN-02", "product": "Verifone P400",
+     "version": "3.0.1", "location": "Hammersmith Branch", "cat": "terminal"},
+    # Retail Platforms
+    {"id": "PLAT-SHP-01", "product": "Shopify POS",
+     "version": "9.1.0", "location": "Online",            "cat": "platform"},
+    {"id": "PLAT-SQR-01", "product": "Square POS",
+     "version": "5.28",  "location": "Online",            "cat": "platform"},
+    {"id": "PLAT-LSP-01", "product": "Lightspeed Retail",
+     "version": "2024.1", "location": "Online",           "cat": "platform"},
+    {"id": "PLAT-RVL-01", "product": "Revel POS",
+     "version": "4.7",   "location": "Online",            "cat": "platform"},
+    # Network Infrastructure
+    {"id": "NET-FW-01",   "product": "Cisco ASA Firewall",
+     "version": "9.16",  "location": "Head Office",       "cat": "network"},
+    {"id": "NET-SW-01",   "product": "Cisco Catalyst Switch",
+     "version": "16.12", "location": "Hounslow Branch",   "cat": "network"},
+]
+
+QUICK_CATEGORIES = {"pos", "terminal"}
 
 
 def load_cve_database(path):
     if not os.path.exists(path):
         print(f"[ERROR] CVE database not found at: {path}", file=sys.stderr)
-        print("[ERROR] Ensure cve_database.json is in the same directory as cve_scanner.py.", file=sys.stderr)
+        print("[ERROR] Ensure cve_database.json is in the scripts/ directory.",
+              file=sys.stderr)
         sys.exit(1)
     with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)
@@ -146,179 +105,148 @@ def match_product(asset_product, cve_product):
 
 
 def scan_asset(asset, cve_db):
-    """Return list of CVE dicts that match this asset's product and version."""
-    matches = []
-    for cve in cve_db["cves"]:
-        if match_product(asset["product"], cve["product"]):
-            if asset["version"] in cve["affected_versions"]:
-                matches.append(cve)
-    matches.sort(key=lambda c: SEV_ORDER.get(c["severity"], 99))
-    return matches
-
-
-def run_scan(mode, cve_db, dry_run=False):
-    """Scan RETAIL_ASSETS against the CVE database and return a structured report."""
-    scan_id = datetime.datetime.utcnow().strftime("RS-SCAN-%Y%m%d-%H%M%S")
-    timestamp = datetime.datetime.utcnow().isoformat() + "Z"
-
-    assets_to_scan = [
-        a for a in RETAIL_ASSETS
-        if mode == "deep" or a["category"] in QUICK_CATEGORIES
-    ]
-
+    """Return list of matching CVEs for a given asset."""
     findings = []
-    summary = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for entry in cve_db:
+        if match_product(asset["product"], entry["product"]):
+            findings.append(entry)
+    return findings
 
-    for asset in assets_to_scan:
-        vulns = scan_asset(asset, cve_db)
-        if vulns:
-            for v in vulns:
-                sev = v.get("severity", "low")
-                summary[sev] = summary.get(sev, 0) + 1
-            findings.append({
-                "asset_id":        asset["asset_id"],
-                "product":         asset["product"],
-                "vendor":          asset["vendor"],
-                "version":         asset["version"],
-                "location":        asset["location"],
-                "ip":              asset["ip"],
-                "category":        asset["category"],
-                "vuln_count":      len(vulns),
-                "vulnerabilities": vulns,
-            })
 
-    total_vulns = sum(summary.values())
+def severity_order(sev):
+    return {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(sev.lower(), 4)
 
-    return {
-        "scan_id":             scan_id,
-        "timestamp":           timestamp,
-        "mode":                mode,
-        "dry_run":             dry_run,
-        "total_assets":        len(RETAIL_ASSETS),
-        "assets_scanned":      len(assets_to_scan),
-        "assets_vulnerable":   len(findings),
-        "vulnerabilities_found": total_vulns,
-        "summary":             summary,
-        "findings":            findings,
+
+def print_text_report(results, scan_meta):
+    """Print colour-coded terminal report."""
+    B = COLOURS["bold"]
+    R = COLOURS["reset"]
+    D = COLOURS["dim"]
+
+    print(f"\n{B}{'=' * 64}{R}")
+    print(f"{B}  RETAILSHIELD CVE VULNERABILITY SCANNER{R}")
+    print(f"{B}{'=' * 64}{R}")
+    print(f"  Scan mode : {scan_meta['mode']}")
+    print(f"  Timestamp : {scan_meta['timestamp']}")
+    print(f"  Assets    : {scan_meta['assets_scanned']}")
+    print(f"  CVE DB    : {scan_meta['cve_db_size']} entries")
+    print(f"{B}{'=' * 64}{R}\n")
+
+    total_vulns = 0
+    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+
+    for item in results:
+        asset = item["asset"]
+        findings = item["findings"]
+        if not findings:
+            print(f"{D}  [{asset['id']}] {asset['product']} v{asset['version']} — No CVEs found{R}")
+            continue
+
+        sev_label = findings[0]["severity"].upper()
+        sev_col = SEV_COLOUR.get(findings[0]["severity"], "")
+        print(f"\n{sev_col}{B}  [{asset['id']}] {asset['product']} "
+              f"v{asset['version']} — {sev_label}{R}")
+        print(f"  Location: {asset['location']}")
+
+        for cve in findings:
+            sev = cve["severity"]
+            col = SEV_COLOUR.get(sev, "")
+            exploit_flag = f" {COLOURS['red']}[EXPLOIT AVAILABLE]{R}" if cve.get("exploit") else ""
+            print(f"\n    {col}{B}{cve['cve_id']}{R} — CVSS {cve['cvss_score']} "
+                  f"({sev.upper()}){exploit_flag}")
+            print(f"    {cve['title']}")
+            print(f"    {D}MITRE: {cve.get('mitre_technique', 'N/A')} — "
+                  f"Patch: {'Available' if cve.get('patch_available') else 'None'}{R}")
+            total_vulns += 1
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+    print(f"\n{B}{'=' * 64}{R}")
+    print(f"{B}  SUMMARY{R}")
+    print(f"{'=' * 64}")
+    for sev in ["critical", "high", "medium", "low"]:
+        col = SEV_COLOUR.get(sev, "")
+        n = severity_counts[sev]
+        bar = "#" * min(n, 40)
+        print(f"  {col}{sev.upper():8s}{R}  {n:3d}  {col}{bar}{R}")
+    print(f"  {'TOTAL':8s}  {total_vulns:3d}")
+    print(f"{B}{'=' * 64}{R}\n")
+
+
+def build_json_output(results, scan_meta):
+    """Build JSON-serialisable output dict."""
+    output = {
+        "scan_metadata": scan_meta,
+        "findings": [],
+        "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0, "total": 0},
     }
-
-
-def _sev_colour(severity):
-    return SEV_COLOURS.get(severity, "") + severity.upper() + SEV_COLOURS["reset"]
-
-
-def print_text_report(report):
-    """Print a human-readable scan report to stdout."""
-    sep = "─" * 72
-
-    print()
-    print("╔" + "═" * 70 + "╗")
-    print("║  RetailShield CVE Vulnerability Scanner — Scan Report             ║")
-    print("║  ShieldTech Ltd · Tanvir Farhad · 2026                            ║")
-    print("╚" + "═" * 70 + "╝")
-    print()
-    print(f"  Scan ID    : {report['scan_id']}")
-    print(f"  Timestamp  : {report['timestamp']}")
-    print(f"  Mode       : {report['mode'].upper()}")
-    print(f"  Assets     : {report['assets_scanned']} scanned / {report['total_assets']} total")
-    print(f"  Vulnerable : {report['assets_vulnerable']} assets")
-    print(f"  CVEs found : {report['vulnerabilities_found']}")
-    print()
-
-    s = report["summary"]
-    print("  Severity Breakdown:")
-    print(f"    {_sev_colour('critical'):30s} {s.get('critical', 0):>3}")
-    print(f"    {_sev_colour('high'):30s} {s.get('high', 0):>3}")
-    print(f"    {_sev_colour('medium'):30s} {s.get('medium', 0):>3}")
-    print(f"    {_sev_colour('low'):30s} {s.get('low', 0):>3}")
-    print()
-
-    if not report["findings"]:
-        print("  No vulnerabilities found.")
-        return
-
-    print(sep)
-    print(f"  {'ASSET ID':<22} {'PRODUCT':<32} {'CVEs':>4}")
-    print(sep)
-
-    for finding in report["findings"]:
-        print(
-            f"  {finding['asset_id']:<22} {finding['product']:<32} "
-            f"{finding['vuln_count']:>4}"
-        )
-        for cve in finding["vulnerabilities"]:
-            sev_label = _sev_colour(cve["severity"])
-            patch = "✓ Patch available" if cve.get("patch_available") else "✗ No patch"
-            exploit = " [EXPLOIT PUBLIC]" if cve.get("exploit_available") else ""
-            print(
-                f"    {cve['cve_id']:<20} CVSS {cve['cvss_score']:<5} "
-                f"{sev_label:<20} {patch}{exploit}"
-            )
-            print(f"    MITRE: {cve['mitre_technique']} — {cve['mitre_tactic']}")
-            print(f"    {cve['description'][:90]}...")
-            print()
-
-    print(sep)
-    print()
+    for item in results:
+        if not item["findings"]:
+            continue
+        output["findings"].append({
+            "asset_id": item["asset"]["id"],
+            "product": item["asset"]["product"],
+            "version": item["asset"]["version"],
+            "location": item["asset"]["location"],
+            "vulnerabilities": item["findings"],
+        })
+        for cve in item["findings"]:
+            sev = cve["severity"]
+            output["summary"][sev] = output["summary"].get(sev, 0) + 1
+            output["summary"]["total"] += 1
+    return output
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="RetailShield CVE Vulnerability Scanner — ShieldTech Ltd"
+        description="RetailShield CVE Vulnerability Scanner"
     )
     parser.add_argument(
-        "--mode",
-        choices=["quick", "deep"],
-        default="deep",
-        help="quick: POS + payment terminals only | deep: all categories (default)",
+        "--mode", choices=["quick", "deep"], default="deep",
+        help="quick = POS + terminals only; deep = all categories (default)",
     )
     parser.add_argument(
-        "--output",
-        choices=["json", "text"],
-        default="text",
-        help="Output format: text (default) or json",
+        "--output", choices=["text", "json"], default="text",
+        help="Output format (default: text)",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Run scan and print first 3 findings to console; do not write any file",
-    )
-    parser.add_argument(
-        "--out-file",
-        default="cve_report.json",
-        help="Output filename for JSON mode (default: cve_report.json)",
+        "--dry-run", action="store_true",
+        help="Print to console only — do not write JSON file",
     )
     args = parser.parse_args()
 
-    print("RetailShield CVE Scanner — ShieldTech Ltd")
-    print(f"Mode: {args.mode} | Output: {args.output} | Dry run: {args.dry_run}")
-    print()
+    cve_db = load_cve_database(CVE_DB_PATH)
 
-    cve_db = load_cve_database(CVE_DATABASE_PATH)
-    print(f"Loaded CVE database: {cve_db['total_cves']} retail CVEs ({cve_db['last_updated']})")
+    assets_to_scan = [
+        a for a in ASSETS
+        if args.mode == "deep" or a["cat"] in QUICK_CATEGORIES
+    ]
 
-    report = run_scan(args.mode, cve_db, dry_run=args.dry_run)
+    scan_meta = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "mode": args.mode,
+        "assets_scanned": len(assets_to_scan),
+        "cve_db_size": len(cve_db),
+    }
 
-    if args.dry_run:
-        preview = {**report, "findings": report["findings"][:3]}
-        print("[DRY RUN] Scan complete — showing first 3 findings:\n")
-        print(json.dumps(preview, indent=2))
-        print("\n[DRY RUN] No files written.")
-        return
+    results = []
+    for asset in assets_to_scan:
+        findings = scan_asset(asset, cve_db)
+        findings.sort(key=lambda c: severity_order(c["severity"]))
+        results.append({"asset": asset, "findings": findings})
 
-    if args.output == "json":
-        with open(args.out_file, "w", encoding="utf-8") as fh:
-            json.dump(report, fh, indent=2)
-        print(f"JSON report written to: {args.out_file}")
-        print(
-            f"Summary: {report['vulnerabilities_found']} CVEs | "
-            f"Critical: {report['summary'].get('critical', 0)} | "
-            f"High: {report['summary'].get('high', 0)}"
-        )
+    if args.output == "text":
+        print_text_report(results, scan_meta)
     else:
-        print_text_report(report)
-
-    print("Done!")
+        output = build_json_output(results, scan_meta)
+        json_str = json.dumps(output, indent=2)
+        if args.dry_run:
+            print(json_str)
+        else:
+            OUTPUT_DIR.mkdir(exist_ok=True)
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            out_path = OUTPUT_DIR / f"scan_{ts}.json"
+            out_path.write_text(json_str, encoding="utf-8")
+            print(f"Scan results written to: {out_path}")
 
 
 if __name__ == "__main__":
