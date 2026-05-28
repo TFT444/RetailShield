@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
+// ── Design tokens ───────────────────────────────────────────────────────────────────────────
 const C = {
   bg:        '#080808',
   surface:   '#0f0f0f',
@@ -22,7 +22,7 @@ const C = {
 const SEV = { critical: C.red, high: C.orange, medium: C.yellow, low: C.blue }
 const STA = { active: C.red, blocked: C.green, pending: C.orange }
 
-// ── Threat data ───────────────────────────────────────────────────────────────
+// ── Threat data ───────────────────────────────────────────────────────────────────────────
 const BASE_THREATS = [
   {
     id: 1, name: 'Phishing Email — Finance Team', mitre: 'T1566.001',
@@ -246,7 +246,7 @@ const LIVE_THREATS = [
   },
 ]
 
-// ── Attack simulation events (5 threats, one per MITRE technique) ────────────
+// ── Attack simulation events (5 threats, one per MITRE technique) ─────────────────────
 const ATTACK_SIM_EVENTS = [
   {
     name: 'Spearphishing — CFO Impersonation [SIM]', mitre: 'T1566.001',
@@ -408,7 +408,7 @@ const ATTACK_SIM_EVENTS = [
   },
 ]
 
-// ── CVE Vulnerability Scanner data ───────────────────────────────────────────
+// ── CVE Vulnerability Scanner data ───────────────────────────────────────────────────
 const VULN_INITIAL = {
   lastScan: '2026-05-28T06:00:00Z',
   totalAssets: 18,
@@ -545,7 +545,7 @@ const VULN_INITIAL = {
   ],
 }
 
-// ── SVG Security Posture Gauge ────────────────────────────────────────────────
+// ── SVG Security Posture Gauge ────────────────────────────────────────────────────────────────────
 function SecurityGauge({ score }) {
   const cx = 100, cy = 95, r = 72
   const startDeg = -210, endDeg = 30, totalArc = endDeg - startDeg
@@ -572,7 +572,7 @@ function SecurityGauge({ score }) {
   )
 }
 
-// ── Attack timeline bar chart ─────────────────────────────────────────────────
+// ── Attack timeline bar chart ──────────────────────────────────────────────────────────────────────
 function AttackTimeline({ tick }) {
   const labels = ['18h', '19h', '20h', '21h', '22h', '23h', '00h', '01h', '02h', '03h', '04h', '05h']
   const base   = [1, 0, 2, 1, 0, 3, 2, 1, 4, 3, 2, 1]
@@ -603,7 +603,7 @@ function AttackTimeline({ tick }) {
   )
 }
 
-// ── MITRE coverage bar ────────────────────────────────────────────────────────
+// ── MITRE coverage bar ──────────────────────────────────────────────────────────────────────────────
 function MitreBar({ technique, tactic, pct, color }) {
   return (
     <div style={{ marginBottom: 12 }}>
@@ -621,7 +621,7 @@ function MitreBar({ technique, tactic, pct, color }) {
   )
 }
 
-// ── Incident playbook modal ───────────────────────────────────────────────────
+// ── Incident playbook modal ────────────────────────────────────────────────────────────────────────
 function PlaybookModal({ threat, onClose }) {
   if (!threat) return null
   return (
@@ -635,7 +635,6 @@ function PlaybookModal({ threat, onClose }) {
         padding: 28, maxWidth: 660, width: '100%', maxHeight: '88vh',
         overflowY: 'auto',
       }}>
-        {/* Title bar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
@@ -657,13 +656,9 @@ function PlaybookModal({ threat, onClose }) {
             color: C.muted, borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 18, lineHeight: 1,
           }}>✕</button>
         </div>
-
-        {/* Description */}
         <div style={{ background: C.surface, borderRadius: 8, padding: '14px 16px', marginBottom: 22, borderLeft: `3px solid ${C.red}` }}>
           <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.7, margin: 0 }}>{threat.desc}</p>
         </div>
-
-        {/* Trigger */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22 }}>
           <span style={{ fontSize: 12, color: C.muted }}>Playbook trigger:</span>
           <code style={{
@@ -672,8 +667,6 @@ function PlaybookModal({ threat, onClose }) {
             border: `1px solid ${C.redDim}`,
           }}>{threat.playbook.trigger}</code>
         </div>
-
-        {/* AUTO steps */}
         <div style={{ marginBottom: 22 }}>
           <h3 style={{ color: C.green, fontSize: 13, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ background: C.green, color: '#000', padding: '2px 8px', borderRadius: 3, fontSize: 10, fontWeight: 800 }}>AUTO</span>
@@ -690,8 +683,6 @@ function PlaybookModal({ threat, onClose }) {
             </div>
           ))}
         </div>
-
-        {/* MANUAL steps */}
         <div>
           <h3 style={{ color: C.orange, fontSize: 13, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ background: C.orange, color: '#000', padding: '2px 8px', borderRadius: 3, fontSize: 10, fontWeight: 800 }}>MANUAL</span>
@@ -714,7 +705,7 @@ function PlaybookModal({ threat, onClose }) {
   )
 }
 
-// ── Main dashboard ────────────────────────────────────────────────────────────
+// ── Main dashboard ──────────────────────────────────────────────────────────────────────────────
 export default function RetailShield() {
   const [threats, setThreats]   = useState(BASE_THREATS)
   const [filter, setFilter]     = useState('all')
@@ -723,18 +714,18 @@ export default function RetailShield() {
   const [score, setScore]       = useState(73)
   const [tick, setTick]         = useState(0)
   const [clock, setClock]       = useState(new Date())
-  const [simStatus, setSimStatus] = useState(null) // null | 'running' | 'complete'
+  const [simStatus, setSimStatus] = useState(null)
   const [vulnData, setVulnData]   = useState(VULN_INITIAL)
-  const [vulnScan, setVulnScan]   = useState(null) // null | 'scanning' | 'done'
+  const [vulnScan, setVulnScan]   = useState(null)
   const [vulnProg, setVulnProg]   = useState(0)
+  const [briefing, setBriefing]   = useState(null)
+  const [briefStatus, setBriefStatus] = useState(null)
 
-  // Live clock
   useEffect(() => {
     const id = setInterval(() => setClock(new Date()), 1000)
     return () => clearInterval(id)
   }, [])
 
-  // Live feed — inject new threat every 6 seconds
   useEffect(() => {
     let idx = 0
     const id = setInterval(() => {
@@ -750,19 +741,16 @@ export default function RetailShield() {
     return () => clearInterval(id)
   }, [])
 
-  // Attack simulation — injects 5 threats one per second
   const runAttackSimulation = useCallback(() => {
     if (simStatus === 'running') return
     setSimStatus('running')
     setScore(s => Math.max(10, s - 20))
-
     ATTACK_SIM_EVENTS.forEach((event, i) => {
       setTimeout(() => {
         const threat = { ...event, id: Date.now() + i, ts: Date.now() }
         setThreats(prev => [threat, ...prev.slice(0, 14)])
         setBanner(threat)
         setTimeout(() => setBanner(null), 3500)
-
         if (i === ATTACK_SIM_EVENTS.length - 1) {
           setTimeout(() => {
             setSimStatus('complete')
@@ -800,7 +788,45 @@ export default function RetailShield() {
     critical: threats.filter(t => t.severity === 'critical').length,
     active:   threats.filter(t => t.status === 'active').length,
     blocked:  threats.filter(t => t.status === 'blocked').length,
+    high:     threats.filter(t => t.severity === 'high').length,
   }
+
+  const generateBriefing = useCallback(async () => {
+    if (briefStatus === 'loading') return
+    setBriefStatus('loading')
+    setBriefing(null)
+    const topThreats = threats.slice(0, 5).map(t => ({
+      name: t.name, mitre: t.mitre, tactic: t.tactic,
+      severity: t.severity, status: t.status,
+    }))
+    const crit = counts.critical, act = counts.active, blk = counts.blocked
+    try {
+      const res = await fetch('/api/brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threats: counts,
+          score: Math.round(score),
+          vulnSummary: vulnData.summary,
+          topThreats,
+        }),
+      })
+      const data = await res.json()
+      setBriefing(data.briefing)
+    } catch {
+      setBriefing(
+        `RETAILSHIELD EXECUTIVE BRIEFING — ${new Date().toUTCString()}\n\n` +
+        `Security Score: ${Math.round(score)}/100. ` +
+        `${crit} critical and ${act} active threats currently detected across monitored retail infrastructure. ` +
+        `${vulnData.summary.critical + vulnData.summary.high} high-severity CVEs require patching within 48 hours. ` +
+        `Automated playbooks have contained ${blk} incidents — no further manual action required for those. ` +
+        `Immediate analyst review is required for all ACTIVE items in the threat feed. ` +
+        `If any cardholder data was accessed, notify your DPO — UK GDPR Art.33 72-hour notification clock applies.\n\n` +
+        `This briefing was generated by RetailShield v2.0 — ShieldTech Ltd.`
+      )
+    }
+    setBriefStatus('done')
+  }, [briefStatus, threats, counts, score, vulnData])
 
   const filtered = threats.filter(t =>
     filter === 'all'      ? true :
@@ -820,14 +846,11 @@ export default function RetailShield() {
     { technique: 'T1598 — Voice Fraud',       tactic: 'Reconnaissance',     pct: 65, color: C.blue   },
   ]
 
-  const s = { // shared styles
-    card: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 10 },
-  }
+  const s = { card: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 10 } }
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', color: C.text }}>
 
-      {/* ── Simulation status banner ── */}
       {simStatus && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9997,
@@ -846,9 +869,7 @@ export default function RetailShield() {
             {simStatus === 'running' ? 'ATTACK SIMULATION RUNNING' : 'SIMULATION COMPLETE — 7 threats injected'}
           </span>
           {simStatus === 'running' && (
-            <span style={{ fontSize: 11, color: C.muted }}>
-              — injecting threats into live feed...
-            </span>
+            <span style={{ fontSize: 11, color: C.muted }}>— injecting threats into live feed...</span>
           )}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
             {simStatus === 'running' && ['T1566.001','T1110.004','T1486','T1048','T1598'].map(t => (
@@ -862,7 +883,6 @@ export default function RetailShield() {
         </div>
       )}
 
-      {/* ── Live alert banner ── */}
       {banner && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9998,
@@ -873,26 +893,18 @@ export default function RetailShield() {
           animation: 'slideIn 0.25s ease',
         }}>
           <span style={{ fontSize: 16 }}>🚨</span>
-          <span style={{ fontWeight: 700, fontSize: 13, color: C.red, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            New Threat Detected
-          </span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: C.red, textTransform: 'uppercase', letterSpacing: '0.5px' }}>New Threat Detected</span>
           <span style={{ fontSize: 13, color: C.text }}>— {banner.name}</span>
-          <span style={{ marginLeft: 'auto', background: 'rgba(0,0,0,0.4)', padding: '2px 10px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace', color: C.red }}>
-            {banner.mitre}
-          </span>
-          <span style={{ fontSize: 10, color: C.muted, background: `${SEV[banner.severity]}20`, padding: '2px 8px', borderRadius: 3, color: SEV[banner.severity], border: `1px solid ${SEV[banner.severity]}40` }}>
-            {banner.severity.toUpperCase()}
-          </span>
+          <span style={{ marginLeft: 'auto', background: 'rgba(0,0,0,0.4)', padding: '2px 10px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace', color: C.red }}>{banner.mitre}</span>
+          <span style={{ fontSize: 10, color: C.muted, background: `${SEV[banner.severity]}20`, padding: '2px 8px', borderRadius: 3, color: SEV[banner.severity], border: `1px solid ${SEV[banner.severity]}40` }}>{banner.severity.toUpperCase()}</span>
         </div>
       )}
 
-      {/* ── Header ── */}
       <header style={{
         background: C.surface, borderBottom: `1px solid ${C.border}`,
         padding: '0 24px', height: 56, display: 'flex', alignItems: 'center',
         position: 'sticky', top: banner ? 42 : 0, zIndex: 200, gap: 0,
       }}>
-        {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginRight: 28 }}>
           <div style={{
             width: 34, height: 34, background: C.red, borderRadius: 8,
@@ -904,58 +916,34 @@ export default function RetailShield() {
             <div style={{ fontSize: 9, color: C.dim, lineHeight: 1 }}>by ShieldTech Ltd · Tanvir Farhad</div>
           </div>
         </div>
-
-        {/* Live indicator */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: C.green, display: 'inline-block', boxShadow: `0 0 8px ${C.green}`, animation: 'pulse 2s infinite' }} />
           <span style={{ fontSize: 11, color: C.green, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Live Monitoring</span>
         </div>
-
-        {/* Right side */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <span style={{ fontSize: 11, color: C.dim }}>Microsoft Sentinel · Azure · UK Retail SOC</span>
-          <span style={{ fontSize: 12, fontFamily: 'monospace', color: C.muted }}>
-            {clock.toLocaleTimeString('en-GB')}
-          </span>
+          <span style={{ fontSize: 12, fontFamily: 'monospace', color: C.muted }}>{clock.toLocaleTimeString('en-GB')}</span>
           <div style={{ display: 'flex', gap: 8 }}>
-            <span style={{ background: `${C.red}20`, color: C.red, padding: '4px 12px', borderRadius: 5, fontSize: 11, fontWeight: 700, border: `1px solid ${C.red}50` }}>
-              {counts.critical} CRITICAL
-            </span>
-            <span style={{ background: `${C.orange}20`, color: C.orange, padding: '4px 12px', borderRadius: 5, fontSize: 11, fontWeight: 700, border: `1px solid ${C.orange}50` }}>
-              {counts.active} ACTIVE
-            </span>
+            <span style={{ background: `${C.red}20`, color: C.red, padding: '4px 12px', borderRadius: 5, fontSize: 11, fontWeight: 700, border: `1px solid ${C.red}50` }}>{counts.critical} CRITICAL</span>
+            <span style={{ background: `${C.orange}20`, color: C.orange, padding: '4px 12px', borderRadius: 5, fontSize: 11, fontWeight: 700, border: `1px solid ${C.orange}50` }}>{counts.active} ACTIVE</span>
           </div>
-          <button
-            onClick={runAttackSimulation}
-            disabled={simStatus === 'running'}
-            style={{
-              background: simStatus === 'running'
-                ? 'transparent'
-                : `linear-gradient(135deg, ${C.red}, #b91c1c)`,
-              color: simStatus === 'running' ? C.red : '#fff',
-              border: `1.5px solid ${C.red}`,
-              borderRadius: 7,
-              padding: '7px 16px',
-              fontSize: 11,
-              fontWeight: 800,
-              letterSpacing: '0.6px',
-              textTransform: 'uppercase',
-              cursor: simStatus === 'running' ? 'not-allowed' : 'pointer',
-              boxShadow: simStatus === 'running' ? 'none' : `0 0 14px ${C.red}60`,
-              animation: simStatus === 'running' ? 'urgentPulse 0.7s ease-in-out infinite' : 'none',
-              transition: 'box-shadow 0.2s, background 0.2s',
-              whiteSpace: 'nowrap',
-            }}
-          >
+          <button onClick={runAttackSimulation} disabled={simStatus === 'running'} style={{
+            background: simStatus === 'running' ? 'transparent' : `linear-gradient(135deg, ${C.red}, #b91c1c)`,
+            color: simStatus === 'running' ? C.red : '#fff',
+            border: `1.5px solid ${C.red}`, borderRadius: 7, padding: '7px 16px',
+            fontSize: 11, fontWeight: 800, letterSpacing: '0.6px', textTransform: 'uppercase',
+            cursor: simStatus === 'running' ? 'not-allowed' : 'pointer',
+            boxShadow: simStatus === 'running' ? 'none' : `0 0 14px ${C.red}60`,
+            animation: simStatus === 'running' ? 'urgentPulse 0.7s ease-in-out infinite' : 'none',
+            transition: 'box-shadow 0.2s, background 0.2s', whiteSpace: 'nowrap',
+          }}>
             {simStatus === 'running' ? '⚡ RUNNING…' : '⚡ SIMULATE ATTACK'}
           </button>
         </div>
       </header>
 
-      {/* ── Main content ── */}
       <main style={{ padding: '20px 24px', maxWidth: 1440, margin: '0 auto' }}>
 
-        {/* KPI row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 18 }}>
           {[
             { label: 'Total Threats',  value: counts.total,    color: C.text,   icon: '⚡', sub: 'last 24 hours'  },
@@ -974,21 +962,16 @@ export default function RetailShield() {
           ))}
         </div>
 
-        {/* Filter bar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
           {['all', 'critical', 'active', 'blocked'].map(f => (
             <button key={f} onClick={() => setFilter(f)} style={{
               padding: '7px 18px', borderRadius: 7, cursor: 'pointer', fontSize: 12,
-              fontWeight: filter === f ? 700 : 400, textTransform: 'uppercase',
-              letterSpacing: '0.5px', transition: 'all 0.2s',
-              border: `1px solid ${filter === f ? C.red : C.border}`,
+              fontWeight: filter === f ? 700 : 400, textTransform: 'uppercase', letterSpacing: '0.5px',
+              transition: 'all 0.2s', border: `1px solid ${filter === f ? C.red : C.border}`,
               background: filter === f ? `${C.red}15` : 'transparent',
               color: filter === f ? C.red : C.muted,
             }}>
-              {f === 'all' ? `All (${counts.total})` :
-               f === 'critical' ? `Critical (${counts.critical})` :
-               f === 'active' ? `Active (${counts.active})` :
-               `Blocked (${counts.blocked})`}
+              {f === 'all' ? `All (${counts.total})` : f === 'critical' ? `Critical (${counts.critical})` : f === 'active' ? `Active (${counts.active})` : `Blocked (${counts.blocked})`}
             </button>
           ))}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -997,10 +980,7 @@ export default function RetailShield() {
           </div>
         </div>
 
-        {/* Two-column layout: feed + sidebar */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 18, marginBottom: 18 }}>
-
-          {/* Threat feed */}
           <div style={s.card}>
             <div style={{ padding: '14px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 700, fontSize: 13 }}>Live Threat Feed</span>
@@ -1011,28 +991,18 @@ export default function RetailShield() {
                 <div style={{ padding: 32, textAlign: 'center', color: C.dim, fontSize: 13 }}>No threats match this filter.</div>
               )}
               {filtered.map(threat => (
-                <div
-                  key={threat.id}
-                  onClick={() => setSelected(threat)}
-                  style={{
-                    padding: '13px 20px',
-                    borderBottom: `1px solid ${C.border}`,
-                    borderLeft: `3px solid ${SEV[threat.severity]}`,
-                    cursor: 'pointer',
-                    transition: 'background 0.15s',
-                  }}
+                <div key={threat.id} onClick={() => setSelected(threat)} style={{
+                  padding: '13px 20px', borderBottom: `1px solid ${C.border}`,
+                  borderLeft: `3px solid ${SEV[threat.severity]}`, cursor: 'pointer', transition: 'background 0.15s',
+                }}
                   onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 5 }}>
                     <span style={{ fontWeight: 600, fontSize: 13 }}>{threat.name}</span>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 16 }}>
-                      <span style={{ fontSize: 10, color: SEV[threat.severity], background: `${SEV[threat.severity]}18`, padding: '2px 7px', borderRadius: 3, fontWeight: 700 }}>
-                        {threat.severity.toUpperCase()}
-                      </span>
-                      <span style={{ fontSize: 10, color: STA[threat.status], padding: '2px 7px', borderRadius: 3, border: `1px solid ${STA[threat.status]}40` }}>
-                        {threat.status}
-                      </span>
+                      <span style={{ fontSize: 10, color: SEV[threat.severity], background: `${SEV[threat.severity]}18`, padding: '2px 7px', borderRadius: 3, fontWeight: 700 }}>{threat.severity.toUpperCase()}</span>
+                      <span style={{ fontSize: 10, color: STA[threat.status], padding: '2px 7px', borderRadius: 3, border: `1px solid ${STA[threat.status]}40` }}>{threat.status}</span>
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 16, fontSize: 11, color: C.muted, flexWrap: 'wrap' }}>
@@ -1046,10 +1016,7 @@ export default function RetailShield() {
             </div>
           </div>
 
-          {/* Right sidebar */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-            {/* Security posture gauge */}
             <div style={{ ...s.card, padding: '16px 18px' }}>
               <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Security Posture</div>
               <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}>
@@ -1057,10 +1024,10 @@ export default function RetailShield() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                 {[
-                  { label: 'Rules Active',   val: '8 / 8',  color: C.green },
-                  { label: 'MTTD',           val: '4.2 min', color: C.text  },
-                  { label: 'MTTR',           val: '18 min',  color: C.text  },
-                  { label: 'FP Rate',        val: '2.1%',   color: C.green },
+                  { label: 'Rules Active', val: '8 / 8',  color: C.green },
+                  { label: 'MTTD',         val: '4.2 min', color: C.text  },
+                  { label: 'MTTR',         val: '18 min',  color: C.text  },
+                  { label: 'FP Rate',      val: '2.1%',   color: C.green },
                 ].map(({ label, val, color }) => (
                   <div key={label} style={{ background: C.surface, borderRadius: 6, padding: '8px 10px' }}>
                     <div style={{ fontSize: 10, color: C.dim, marginBottom: 2 }}>{label}</div>
@@ -1069,8 +1036,6 @@ export default function RetailShield() {
                 ))}
               </div>
             </div>
-
-            {/* Attack timeline */}
             <div style={{ ...s.card, padding: '16px 18px' }}>
               <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12 }}>Attack Timeline — 12h</div>
               <AttackTimeline tick={tick} />
@@ -1078,271 +1043,194 @@ export default function RetailShield() {
           </div>
         </div>
 
-        {/* MITRE ATT&CK coverage */}
         <div style={{ ...s.card, padding: '20px 24px', marginBottom: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
             <span style={{ fontWeight: 700, fontSize: 13 }}>MITRE ATT&amp;CK Coverage — Retail TTP Matrix</span>
-            <span style={{
-              fontSize: 11, color: C.green, background: `${C.green}15`,
-              padding: '4px 12px', borderRadius: 5, border: `1px solid ${C.green}40`,
-            }}>8 / 8 Techniques Monitored</span>
+            <span style={{ fontSize: 11, color: C.green, background: `${C.green}15`, padding: '4px 12px', borderRadius: 5, border: `1px solid ${C.green}40` }}>8 / 8 Techniques Monitored</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0 36px' }}>
             {mitre.map(m => <MitreBar key={m.technique} {...m} />)}
           </div>
         </div>
 
-        {/* CVE Vulnerability Scanner */}
         <div style={{ ...s.card, padding: '20px 24px', marginBottom: 18, position: 'relative', overflow: 'hidden' }}>
-
-          {/* Scanning overlay */}
           {vulnScan === 'scanning' && (
-            <div style={{
-              position: 'absolute', inset: 0, background: 'rgba(8,8,8,0.88)', zIndex: 10,
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20,
-            }}>
-              <div style={{ fontSize: 13, color: C.blue, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', animation: 'scanPulse 1s ease-in-out infinite' }}>
-                Scanning Retail Infrastructure...
-              </div>
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(8,8,8,0.88)', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
+              <div style={{ fontSize: 13, color: C.blue, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', animation: 'scanPulse 1s ease-in-out infinite' }}>Scanning Retail Infrastructure...</div>
               <div style={{ width: 340, height: 8, background: C.border, borderRadius: 4, overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%', width: `${vulnProg}%`, borderRadius: 4,
-                  background: `linear-gradient(90deg, ${C.blue}, ${C.red})`,
-                  boxShadow: `0 0 12px ${C.blue}80`,
-                  transition: 'width 0.2s ease',
-                }} />
+                <div style={{ height: '100%', width: `${vulnProg}%`, borderRadius: 4, background: `linear-gradient(90deg, ${C.blue}, ${C.red})`, boxShadow: `0 0 12px ${C.blue}80`, transition: 'width 0.2s ease' }} />
               </div>
-              <div style={{ fontSize: 11, color: C.muted, fontFamily: 'monospace' }}>
-                Checking {vulnData.totalAssets} assets against 32 retail CVEs — {vulnProg}%
-              </div>
+              <div style={{ fontSize: 11, color: C.muted, fontFamily: 'monospace' }}>Checking {vulnData.totalAssets} assets against 32 retail CVEs — {vulnProg}%</div>
             </div>
           )}
-
-          {/* Header row */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
             <div>
               <span style={{ fontWeight: 700, fontSize: 13 }}>CVE Vulnerability Scanner — Retail Stack</span>
-              <div style={{ fontSize: 11, color: C.dim, marginTop: 3 }}>
-                Last scan: {new Date(vulnData.lastScan).toLocaleString('en-GB')} ·{' '}
-                {vulnData.totalAssets} assets · {vulnData.findings.length} vulnerable
-                {vulnScan === 'done' && (
-                  <span style={{ color: C.green, marginLeft: 8, fontWeight: 700 }}>✓ Scan complete</span>
-                )}
-              </div>
+              <div style={{ fontSize: 11, color: C.dim, marginTop: 3 }}>Last scan: {new Date(vulnData.lastScan).toLocaleString('en-GB')} · {vulnData.totalAssets} assets · {vulnData.findings.length} vulnerable{vulnScan === 'done' && <span style={{ color: C.green, marginLeft: 8, fontWeight: 700 }}>✓ Scan complete</span>}</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {/* Severity badges */}
-              {[
-                { label: 'CRITICAL', val: vulnData.summary.critical, color: C.red },
-                { label: 'HIGH',     val: vulnData.summary.high,     color: C.orange },
-                { label: 'MEDIUM',   val: vulnData.summary.medium,   color: C.yellow },
-                { label: 'LOW',      val: vulnData.summary.low,      color: C.blue },
-              ].map(({ label, val, color }) => (
-                <div key={label} style={{
-                  background: `${color}18`, border: `1px solid ${color}50`,
-                  borderRadius: 6, padding: '5px 12px', textAlign: 'center',
-                }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color, fontFamily: 'monospace', lineHeight: 1 }}>{val}</div>
-                  <div style={{ fontSize: 9, color, opacity: 0.8, marginTop: 2, letterSpacing: '0.5px' }}>{label}</div>
+              {[{label:'CRITICAL',val:vulnData.summary.critical,color:C.red},{label:'HIGH',val:vulnData.summary.high,color:C.orange},{label:'MEDIUM',val:vulnData.summary.medium,color:C.yellow},{label:'LOW',val:vulnData.summary.low,color:C.blue}].map(({label,val,color}) => (
+                <div key={label} style={{ background:`${color}18`,border:`1px solid ${color}50`,borderRadius:6,padding:'5px 12px',textAlign:'center' }}>
+                  <div style={{ fontSize:16,fontWeight:800,color,fontFamily:'monospace',lineHeight:1 }}>{val}</div>
+                  <div style={{ fontSize:9,color,opacity:0.8,marginTop:2,letterSpacing:'0.5px' }}>{label}</div>
                 </div>
               ))}
-              <button
-                onClick={runVulnScan}
-                disabled={vulnScan === 'scanning'}
-                style={{
-                  background: vulnScan === 'scanning'
-                    ? 'transparent'
-                    : `linear-gradient(135deg, ${C.blue}, #1d4ed8)`,
-                  color: vulnScan === 'scanning' ? C.blue : '#fff',
-                  border: `1.5px solid ${C.blue}`,
-                  borderRadius: 7, padding: '8px 16px',
-                  fontSize: 11, fontWeight: 800, letterSpacing: '0.6px',
-                  textTransform: 'uppercase', cursor: vulnScan === 'scanning' ? 'not-allowed' : 'pointer',
-                  boxShadow: vulnScan === 'scanning' ? 'none' : `0 0 14px ${C.blue}50`,
-                  whiteSpace: 'nowrap',
-                  animation: vulnScan === 'scanning' ? 'scanPulse 0.8s ease-in-out infinite' : 'none',
-                  transition: 'box-shadow 0.2s, background 0.2s',
-                }}
-              >
-                {vulnScan === 'scanning' ? `🔍 SCANNING ${vulnProg}%` : '🔍 RUN VULNERABILITY SCAN'}
-              </button>
+              <button onClick={runVulnScan} disabled={vulnScan==='scanning'} style={{
+                background: vulnScan==='scanning' ? 'transparent' : `linear-gradient(135deg, ${C.blue}, #1d4ed8)`,
+                color: vulnScan==='scanning' ? C.blue : '#fff', border:`1.5px solid ${C.blue}`,
+                borderRadius:7,padding:'8px 16px',fontSize:11,fontWeight:800,letterSpacing:'0.6px',
+                textTransform:'uppercase',cursor:vulnScan==='scanning'?'not-allowed':'pointer',
+                boxShadow:vulnScan==='scanning'?'none':`0 0 14px ${C.blue}50`,whiteSpace:'nowrap',
+                animation:vulnScan==='scanning'?'scanPulse 0.8s ease-in-out infinite':'none',
+                transition:'box-shadow 0.2s, background 0.2s',
+              }}>{vulnScan==='scanning'?`🔍 SCANNING ${vulnProg}%`:'🔍 RUN VULNERABILITY SCAN'}</button>
             </div>
           </div>
+          <div style={{ border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden' }}>
+            <div style={{ display:'grid',gridTemplateColumns:'130px 1fr 90px 140px 90px 80px 100px',background:C.surface,padding:'8px 14px',borderBottom:`1px solid ${C.border}` }}>
+              {['ASSET ID','CVE / DESCRIPTION','CVSS','PRODUCT','VERSION','SEVERITY','PATCH'].map(h=>(<span key={h} style={{fontSize:10,color:C.dim,fontWeight:700,letterSpacing:'0.5px'}}>{h}</span>))}
+            </div>
+            <div style={{ maxHeight:360,overflowY:'auto' }}>
+              {vulnData.findings.flatMap(f=>f.vulns.map((v,vi)=>{
+                const sevColor=SEV[v.sev]||C.muted
+                return(
+                  <div key={`${f.id}-${v.cve}`} style={{ display:'grid',gridTemplateColumns:'130px 1fr 90px 140px 90px 80px 100px',padding:'10px 14px',borderBottom:`1px solid ${C.border}`,borderLeft:`3px solid ${sevColor}`,transition:'background 0.15s' }}
+                    onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    <div style={{fontSize:11,fontFamily:'monospace',color:C.red,fontWeight:700,alignSelf:'center'}}>{vi===0?f.id:''}</div>
+                    <div style={{alignSelf:'center',paddingRight:12}}>
+                      <div style={{fontSize:11,fontFamily:'monospace',color:C.text,fontWeight:700,marginBottom:2}}>{v.cve}{v.exploit&&<span style={{marginLeft:6,fontSize:9,color:C.red,background:`${C.red}20`,padding:'1px 5px',borderRadius:3,border:`1px solid ${C.red}40`}}>EXPLOIT</span>}</div>
+                      <div style={{fontSize:11,color:C.muted,lineHeight:1.4}}>{v.title}</div>
+                      <div style={{fontSize:10,color:C.dim,marginTop:2,fontFamily:'monospace'}}>MITRE: {v.mitre}</div>
+                    </div>
+                    <div style={{alignSelf:'center'}}><span style={{fontSize:14,fontWeight:800,fontFamily:'monospace',color:sevColor,textShadow:`0 0 8px ${sevColor}60`}}>{v.cvss}</span></div>
+                    <div style={{fontSize:11,color:C.muted,alignSelf:'center'}}>{vi===0?f.product:''}</div>
+                    <div style={{alignSelf:'center'}}>{vi===0&&<span style={{fontSize:10,fontFamily:'monospace',background:C.surface,border:`1px solid ${C.border}`,padding:'2px 7px',borderRadius:4,color:C.muted}}>v{f.version}</span>}</div>
+                    <div style={{alignSelf:'center'}}><span style={{fontSize:10,fontWeight:700,color:sevColor,background:`${sevColor}18`,padding:'3px 8px',borderRadius:4,textTransform:'uppercase'}}>{v.sev}</span></div>
+                    <div style={{alignSelf:'center'}}><span style={{fontSize:10,fontWeight:600,color:v.patch?C.green:C.red}}>{v.patch?'✓ Available':'✗ No patch'}</span></div>
+                  </div>
+                )
+              }))}
+            </div>
+          </div>
+          <div style={{ display:'flex',gap:20,marginTop:14,flexWrap:'wrap' }}>
+            {[
+              {label:'Assets Scanned',val:vulnData.totalAssets,color:C.text},
+              {label:'Total CVEs',val:vulnData.summary.critical+vulnData.summary.high+vulnData.summary.medium+vulnData.summary.low,color:C.text},
+              {label:'Patch Available',val:vulnData.findings.reduce((n,f)=>n+f.vulns.filter(v=>v.patch).length,0),color:C.green},
+              {label:'Public Exploits',val:vulnData.findings.reduce((n,f)=>n+f.vulns.filter(v=>v.exploit).length,0),color:C.red},
+            ].map(({label,val,color})=>(<div key={label} style={{background:C.surface,borderRadius:6,padding:'8px 14px',display:'flex',gap:10,alignItems:'center'}}><span style={{fontSize:18,fontWeight:800,color,fontFamily:'monospace'}}>{val}</span><span style={{fontSize:11,color:C.dim}}>{label}</span></div>))}
+          </div>
+        </div>
 
-          {/* Vulnerability table */}
-          <div style={{
-            border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden',
-          }}>
-            {/* Table header */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '130px 1fr 90px 140px 90px 80px 100px',
-              gap: 0,
-              background: C.surface,
-              padding: '8px 14px',
-              borderBottom: `1px solid ${C.border}`,
-            }}>
-              {['ASSET ID', 'CVE / DESCRIPTION', 'CVSS', 'PRODUCT', 'VERSION', 'SEVERITY', 'PATCH'].map(h => (
-                <span key={h} style={{ fontSize: 10, color: C.dim, fontWeight: 700, letterSpacing: '0.5px' }}>{h}</span>
+        <div style={{ ...s.card, padding: '20px 24px', marginBottom: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <div>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>PCI DSS v4.0 Compliance Scorecard</span>
+              <div style={{ fontSize: 11, color: C.dim, marginTop: 3 }}>Retail payment card security — 12 requirements · Auto-mapped from RetailShield detection rules &amp; CVE scanner</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[{label:'COVERED',n:8,color:C.green},{label:'PARTIAL',n:2,color:C.yellow},{label:'PLANNED',n:1,color:C.dim}].map(({label,n,color})=>(
+                <div key={label} style={{background:`${color}15`,border:`1px solid ${color}40`,borderRadius:6,padding:'5px 12px',textAlign:'center'}}>
+                  <div style={{fontSize:16,fontWeight:800,color,fontFamily:'monospace',lineHeight:1}}>{n}</div>
+                  <div style={{fontSize:9,color,opacity:0.8,marginTop:2,letterSpacing:'0.5px'}}>{label}</div>
+                </div>
               ))}
             </div>
-
-            {/* Scrollable rows */}
-            <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-              {vulnData.findings.flatMap(f =>
-                f.vulns.map((v, vi) => {
-                  const sevColor = SEV[v.sev] || C.muted
-                  return (
-                    <div
-                      key={`${f.id}-${v.cve}`}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '130px 1fr 90px 140px 90px 80px 100px',
-                        gap: 0,
-                        padding: '10px 14px',
-                        borderBottom: `1px solid ${C.border}`,
-                        borderLeft: `3px solid ${sevColor}`,
-                        transition: 'background 0.15s',
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                    >
-                      {/* Asset ID — only show on first vuln row */}
-                      <div style={{ fontSize: 11, fontFamily: 'monospace', color: C.red, fontWeight: 700, alignSelf: 'center' }}>
-                        {vi === 0 ? f.id : ''}
-                      </div>
-                      {/* CVE + description */}
-                      <div style={{ alignSelf: 'center', paddingRight: 12 }}>
-                        <div style={{ fontSize: 11, fontFamily: 'monospace', color: C.text, fontWeight: 700, marginBottom: 2 }}>
-                          {v.cve}
-                          {v.exploit && (
-                            <span style={{ marginLeft: 6, fontSize: 9, color: C.red, background: `${C.red}20`, padding: '1px 5px', borderRadius: 3, border: `1px solid ${C.red}40` }}>
-                              EXPLOIT
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.4 }}>{v.title}</div>
-                        <div style={{ fontSize: 10, color: C.dim, marginTop: 2, fontFamily: 'monospace' }}>
-                          MITRE: {v.mitre}
-                        </div>
-                      </div>
-                      {/* CVSS score */}
-                      <div style={{ alignSelf: 'center' }}>
-                        <span style={{
-                          fontSize: 14, fontWeight: 800, fontFamily: 'monospace', color: sevColor,
-                          textShadow: `0 0 8px ${sevColor}60`,
-                        }}>{v.cvss}</span>
-                      </div>
-                      {/* Product */}
-                      <div style={{ fontSize: 11, color: C.muted, alignSelf: 'center' }}>
-                        {vi === 0 ? f.product : ''}
-                      </div>
-                      {/* Version */}
-                      <div style={{ alignSelf: 'center' }}>
-                        {vi === 0 && (
-                          <span style={{ fontSize: 10, fontFamily: 'monospace', background: C.surface, border: `1px solid ${C.border}`, padding: '2px 7px', borderRadius: 4, color: C.muted }}>
-                            v{f.version}
-                          </span>
-                        )}
-                      </div>
-                      {/* Severity */}
-                      <div style={{ alignSelf: 'center' }}>
-                        <span style={{
-                          fontSize: 10, fontWeight: 700, color: sevColor,
-                          background: `${sevColor}18`, padding: '3px 8px',
-                          borderRadius: 4, textTransform: 'uppercase',
-                        }}>{v.sev}</span>
-                      </div>
-                      {/* Patch status */}
-                      <div style={{ alignSelf: 'center' }}>
-                        <span style={{
-                          fontSize: 10, fontWeight: 600,
-                          color: v.patch ? C.green : C.red,
-                        }}>{v.patch ? '✓ Available' : '✗ No patch'}</span>
-                      </div>
-                    </div>
-                  )
-                })
-              )}
-            </div>
           </div>
-
-          {/* Footer stats */}
-          <div style={{ display: 'flex', gap: 20, marginTop: 14, flexWrap: 'wrap' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
             {[
-              { label: 'Assets Scanned',    val: vulnData.totalAssets, color: C.text },
-              { label: 'Total CVEs',         val: vulnData.summary.critical + vulnData.summary.high + vulnData.summary.medium + vulnData.summary.low, color: C.text },
-              { label: 'Patch Available',    val: vulnData.findings.reduce((n, f) => n + f.vulns.filter(v => v.patch).length, 0), color: C.green },
-              { label: 'Public Exploits',    val: vulnData.findings.reduce((n, f) => n + f.vulns.filter(v => v.exploit).length, 0), color: C.red },
-            ].map(({ label, val, color }) => (
-              <div key={label} style={{ background: C.surface, borderRadius: 6, padding: '8px 14px', display: 'flex', gap: 10, alignItems: 'center' }}>
-                <span style={{ fontSize: 18, fontWeight: 800, color, fontFamily: 'monospace' }}>{val}</span>
-                <span style={{ fontSize: 11, color: C.dim }}>{label}</span>
+              { req:'Req 1',  label:'Network Security Controls',         status:'covered', rule:'supply_chain_anomaly.kql', color:C.green  },
+              { req:'Req 2',  label:'Secure System Configurations',      status:'covered', rule:'cve_scanner.py',           color:C.green  },
+              { req:'Req 3',  label:'Protect Stored Cardholder Data',    status:'covered', rule:'data_exfiltration.kql',    color:C.green  },
+              { req:'Req 4',  label:'Encrypt Cardholder Data in Transit',status:'covered', rule:'CVE-2024-38291 (TLS)',     color:C.green  },
+              { req:'Req 5',  label:'Anti-Malware Protection',           status:'covered', rule:'ransomware_indicator.kql', color:C.green  },
+              { req:'Req 6',  label:'Secure Software Development',       status:'covered', rule:'cve_scanner.py (patches)', color:C.green  },
+              { req:'Req 7',  label:'Restrict Access by Business Need',  status:'partial', rule:'after_hours_access.kql',  color:C.yellow },
+              { req:'Req 8',  label:'Identify Users & Auth Access',      status:'covered', rule:'credential_stuffing.kql', color:C.green  },
+              { req:'Req 9',  label:'Restrict Physical Access',          status:'partial', rule:'pos_anomaly.kql',          color:C.yellow },
+              { req:'Req 10', label:'Log & Monitor All Access',          status:'covered', rule:'All 8 KQL rules',          color:C.green  },
+              { req:'Req 11', label:'Test Security Systems Regularly',   status:'covered', rule:'cve_scanner.py (scans)',   color:C.green  },
+              { req:'Req 12', label:'Organisational Security Policies',  status:'planned', rule:'v3.0 — Planned',          color:C.dim    },
+            ].map(({ req, label, status, rule, color }) => (
+              <div key={req} style={{ background:C.surface,borderRadius:8,padding:'12px 14px',borderLeft:`3px solid ${color}`,display:'flex',flexDirection:'column',gap:4 }}>
+                <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center' }}>
+                  <span style={{ fontSize:10,fontFamily:'monospace',fontWeight:700,color,letterSpacing:'0.5px' }}>{req}</span>
+                  <span style={{ fontSize:9,color,background:`${color}20`,padding:'2px 6px',borderRadius:3,textTransform:'uppercase',fontWeight:700 }}>{status}</span>
+                </div>
+                <div style={{ fontSize:11,color:C.text,fontWeight:600,lineHeight:1.3 }}>{label}</div>
+                <div style={{ fontSize:10,color:C.dim,fontFamily:'monospace',marginTop:2 }}>{rule}</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Emergency contacts */}
+        <div style={{ ...s.card, padding: '20px 24px', marginBottom: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: briefing ? 16 : 0 }}>
+            <div>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>AI Executive Threat Briefing</span>
+              <div style={{ fontSize: 11, color: C.dim, marginTop: 3 }}>Claude AI generates a board-ready summary from live dashboard state · Powered by Anthropic</div>
+            </div>
+            <button onClick={generateBriefing} disabled={briefStatus==='loading'} style={{
+              background: briefStatus==='loading' ? 'transparent' : `linear-gradient(135deg, #7c3aed, #6d28d9)`,
+              color: briefStatus==='loading' ? '#7c3aed' : '#fff',
+              border:'1.5px solid #7c3aed',borderRadius:7,padding:'8px 18px',
+              fontSize:11,fontWeight:800,letterSpacing:'0.6px',textTransform:'uppercase',
+              cursor:briefStatus==='loading'?'not-allowed':'pointer',
+              boxShadow:briefStatus==='loading'?'none':'0 0 16px rgba(124,58,237,0.5)',
+              whiteSpace:'nowrap',
+              animation:briefStatus==='loading'?'scanPulse 0.8s ease-in-out infinite':'none',
+              transition:'box-shadow 0.2s, background 0.2s',
+            }}>{briefStatus==='loading'?'⚡ GENERATING...':'⚡ GENERATE AI BRIEFING'}</button>
+          </div>
+          {briefing && (
+            <div style={{ background:'linear-gradient(135deg, #0d0618, #130a2a)',border:'1px solid #7c3aed40',borderLeft:'3px solid #7c3aed',borderRadius:8,padding:'18px 20px' }}>
+              <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12 }}>
+                <span style={{ fontSize:11,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'1px' }}>Claude AI — Executive Briefing</span>
+                <div style={{ display:'flex',gap:8 }}>
+                  <span style={{ fontSize:10,color:C.dim,fontFamily:'monospace' }}>{new Date().toLocaleString('en-GB')}</span>
+                  <button onClick={()=>{setBriefing(null);setBriefStatus(null)}} style={{ background:'transparent',border:'none',color:C.dim,cursor:'pointer',fontSize:14,padding:'0 4px' }}>✕</button>
+                </div>
+              </div>
+              <pre style={{ fontFamily:'-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',fontSize:13,color:C.text,lineHeight:1.8,whiteSpace:'pre-wrap',margin:0 }}>{briefing}</pre>
+            </div>
+          )}
+          {!briefing && (
+            <div style={{ background:C.surface,borderRadius:8,padding:'20px 24px',textAlign:'center',border:'1px dashed #7c3aed40',marginTop:16 }}>
+              <div style={{ fontSize:28,marginBottom:8 }}>🤖</div>
+              <div style={{ fontSize:13,color:C.muted,marginBottom:4 }}>Click <strong style={{ color:'#a78bfa' }}>GENERATE AI BRIEFING</strong> to produce a board-ready executive summary</div>
+              <div style={{ fontSize:11,color:C.dim }}>Analyses active threats · CVE severity · PCI DSS exposure · Regulatory obligations</div>
+            </div>
+          )}
+        </div>
+
         <div style={{ ...s.card, padding: '20px 24px' }}>
           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 16 }}>🆘 Emergency Contacts</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
             {[
-              {
-                org: 'NCSC',
-                full: 'National Cyber Security Centre',
-                tel: '0300 020 0973',
-                email: 'report@ncsc.gov.uk',
-                note: 'Critical infrastructure & national-level cyber incidents',
-                color: C.blue,
-                icon: '🏛',
-              },
-              {
-                org: 'ICO',
-                full: "Information Commissioner's Office",
-                tel: '0303 123 1113',
-                email: 'casework@ico.org.uk',
-                note: 'GDPR breach notification — 72-hour statutory window',
-                color: C.yellow,
-                icon: '⚖️',
-              },
-              {
-                org: 'Action Fraud',
-                full: 'UK National Fraud & Cybercrime',
-                tel: '0300 123 2040',
-                email: 'actionfraud.police.uk',
-                note: 'Report financial fraud, voice fraud, and cybercrime',
-                color: C.orange,
-                icon: '🚔',
-              },
+              { org:'NCSC', full:'National Cyber Security Centre', tel:'0300 020 0973', email:'report@ncsc.gov.uk', note:'Critical infrastructure & national-level cyber incidents', color:C.blue, icon:'🏗' },
+              { org:'ICO', full:"Information Commissioner's Office", tel:'0303 123 1113', email:'casework@ico.org.uk', note:'GDPR breach notification — 72-hour statutory window', color:C.yellow, icon:'⚖️' },
+              { org:'Action Fraud', full:'UK National Fraud & Cybercrime', tel:'0300 123 2040', email:'actionfraud.police.uk', note:'Report financial fraud, voice fraud, and cybercrime', color:C.orange, icon:'🚔' },
             ].map(({ org, full, tel, email, note, color, icon }) => (
-              <div key={org} style={{
-                background: C.surface, borderRadius: 8, padding: '16px 18px',
-                borderLeft: `3px solid ${color}`,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <span style={{ fontSize: 16 }}>{icon}</span>
-                  <span style={{ fontWeight: 800, fontSize: 15, color }}>{org}</span>
+              <div key={org} style={{ background:C.surface,borderRadius:8,padding:'16px 18px',borderLeft:`3px solid ${color}` }}>
+                <div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:4 }}>
+                  <span style={{ fontSize:16 }}>{icon}</span>
+                  <span style={{ fontWeight:800,fontSize:15,color }}>{org}</span>
                 </div>
-                <div style={{ fontSize: 11, color: C.muted, marginBottom: 10 }}>{full}</div>
-                <div style={{ fontSize: 12, color: C.text, marginBottom: 3 }}>📞 {tel}</div>
-                <div style={{ fontSize: 12, color: C.text, marginBottom: 10 }}>✉  {email}</div>
-                <div style={{ fontSize: 11, color: C.dim, lineHeight: 1.5 }}>{note}</div>
+                <div style={{ fontSize:11,color:C.muted,marginBottom:10 }}>{full}</div>
+                <div style={{ fontSize:12,color:C.text,marginBottom:3 }}>📞 {tel}</div>
+                <div style={{ fontSize:12,color:C.text,marginBottom:10 }}>✉  {email}</div>
+                <div style={{ fontSize:11,color:C.dim,lineHeight:1.5 }}>{note}</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Footer */}
-        <div style={{ textAlign: 'center', padding: '20px 0 8px', color: C.dim, fontSize: 11 }}>
-          RetailShield v1.0 · ShieldTech Ltd · Tanvir Farhad · Microsoft Sentinel · MITRE ATT&amp;CK Enterprise
-        </div>
+        <div style={{ textAlign:'center',padding:'20px 0 8px',color:C.dim,fontSize:11 }}>RetailShield v1.0 · ShieldTech Ltd · Tanvir Farhad · Microsoft Sentinel · MITRE ATT&amp;CK Enterprise</div>
       </main>
 
-      {/* Playbook modal */}
       <PlaybookModal threat={selected} onClose={() => setSelected(null)} />
 
-      {/* Global styles */}
       <style>{`
         @keyframes slideIn      { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         @keyframes pulse        { 0%,100% { opacity: 1; box-shadow: 0 0 6px currentColor; } 50% { opacity: 0.3; box-shadow: none; } }
