@@ -1,0 +1,154 @@
+// ============================================================
+// RetailShield — POS Anomaly Detection
+// Rule ID      : RS-POS-001
+// MITRE ATT&CK : T1056.001 — Keylogging / RAM Scraping
+// Tactic       : Collection
+// Severity     : High
+// Frequency    : Every 15 minutes | Lookback: 30 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// ============================================================
+// Detects RAM-scraping keyloggers and anomalous activity on
+// retail POS terminals. Covers unknown DLL injection into POS
+// processes, abnormal transaction volume spikes (statistical
+// anomaly), process memory dumps, and suspicious outbound
+// network connections from POS endpoints to threat IPs.
+// ============================================================
+
+let LookbackWindow         = 30m;
+let BaselineWindow         = 30d;
+let TransactionVolumeThreshold = 3.5;    // std deviations above 30-day baseline
+
+// POS application process names
+let POSProcessNames = dynamic([
+    "xstore.exe", "aloha.exe", "tcxpos.exe",
+    "posready.exe", "retail.exe", "revel.exe", "squarepos.exe"
+]);
+
+// Hostname prefixes that identify POS / till hardware
+let RetailTerminalPrefix = dynamic([
+    "pos-", "till-", "kiosk-", "ped-", "term-"
+]);
+
+// Folders that are trusted for DLL loads — flag anything outside
+let TrustedDLLPaths = dynamic([
+    @"C:\Windows\System32",
+    @"C:\Windows\SysWOW64",
+    @"C:\Program Files",
+    @"C:\Program Files (x86)"
+]);
+
+// ── Signal 1 — Unknown unsigned DLL injected into POS process ────────────────
+let UnknownDLLInjection =
+    DeviceEvents
+    | where ingestion_time() > ago(LookbackWindow)
+    | where ActionType == "ImageLoaded"
+    | where InitiatingProcessFileName has_any (POSProcessNames)
+    | where FileName endswith ".dll" or FileName endswith ".sys"
+    | where isempty(SHA1) or Signer == "" or isempty(Signer)
+    | where not(FolderPath has_any (TrustedDLLPaths))
+    | extend DeviceLower = tolower(DeviceName)
+    | where DeviceLower has_any (RetailTerminalPrefix)
+    | project
+        TimeGenerated, DeviceName, DeviceId,
+        SignalType    = "UnknownDLLInjection",
+        POSProcess    = InitiatingProcessFileName,
+        SuspiciousDLL = FileName,
+        DLLPath       = FolderPath,
+        SHA256        = InitiatingProcessSHA256;
+
+// ── Signal 2 — Abnormal transaction volume (statistical spike) ───────────────
+let AbnormalTransactionVolume =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(BaselineWindow)
+    | where EventType_s == "POS_Transaction"
+    | summarize HourlyCount = count() by TerminalID_s, bin(TimeGenerated, 1h)
+    | summarize AvgCount = avg(HourlyCount), StdDev = stdev(HourlyCount)
+      by TerminalID_s
+    | join kind=inner (
+        RetailShield_Logs_CL
+        | where ingestion_time() > ago(LookbackWindow)
+        | where EventType_s == "POS_Transaction"
+        | summarize RecentCount = count() by TerminalID_s
+    ) on TerminalID_s
+    | where RecentCount > AvgCount + (TransactionVolumeThreshold * StdDev)
+    | extend AnomalyScore = round((RecentCount - AvgCount) / StdDev, 2)
+    | project
+        TimeGenerated = now(), DeviceName = TerminalID_s, DeviceId = "",
+        SignalType    = "AbnormalTransactionVolume",
+        POSProcess    = "POS_Transaction",
+        SuspiciousDLL = "",
+        DLLPath       = "",
+        SHA256        = "";
+
+// ── Signal 3 — Process memory dump targeting a POS application ───────────────
+let ProcessMemoryDump =
+    DeviceEvents
+    | where ingestion_time() > ago(LookbackWindow)
+    | where ActionType in ("ProcessDumped", "MemoryDumpCreated")
+        or (ActionType == "ProcessAccessed"
+            and ProcessCommandLine has_any ("MiniDump", "ProcDump", "createdump", "procdump"))
+    | where tolower(TargetProcessFileName) has_any (POSProcessNames)
+    | project
+        TimeGenerated, DeviceName, DeviceId,
+        SignalType    = "ProcessMemoryDump",
+        POSProcess    = TargetProcessFileName,
+        SuspiciousDLL = InitiatingProcessFileName,
+        DLLPath       = ProcessCommandLine,
+        SHA256        = InitiatingProcessSHA256;
+
+// ── Signal 4 — Suspicious outbound network from POS to threat IP ─────────────
+let SuspiciousNetworkFromPOS =
+    DeviceNetworkEvents
+    | where ingestion_time() > ago(LookbackWindow)
+    | where tolower(DeviceName) has_any (RetailTerminalPrefix)
+    | where RemoteIPType == "Public"
+    | where not(RemotePort in (443, 80, 8443, 8080))
+    | join kind=inner (
+        _GetWatchlist("RetailIOCWatchlist")
+        | project ThreatIP = tostring(column_ifexists("SearchKey", ""))
+    ) on $left.RemoteIP == $right.ThreatIP
+    | project
+        TimeGenerated, DeviceName, DeviceId,
+        SignalType    = "SuspiciousNetworkFromPOS",
+        POSProcess    = InitiatingProcessFileName,
+        SuspiciousDLL = RemoteIP,
+        DLLPath       = tostring(RemotePort),
+        SHA256        = "";
+
+// ── Union all signals ─────────────────────────────────────────────────────────
+union UnknownDLLInjection, AbnormalTransactionVolume, ProcessMemoryDump, SuspiciousNetworkFromPOS
+| summarize
+    SignalCount   = count(),
+    Signals       = make_set(SignalType),
+    FirstSeen     = min(TimeGenerated),
+    LastSeen      = max(TimeGenerated),
+    SuspiciousDLL = take_any(SuspiciousDLL),
+    POSProcess    = take_any(POSProcess),
+    DeviceId      = take_any(DeviceId)
+  by DeviceName
+| where SignalCount >= 1
+| extend
+    RiskScore       = case(SignalCount >= 3, 95, SignalCount == 2, 82, 65),
+    MitreTechnique  = "T1056.001",
+    MitreTactic     = "Collection",
+    Severity        = case(SignalCount >= 2, "HIGH", "HIGH"),
+    AlertSeverity   = case(SignalCount >= 3, "CRITICAL", "HIGH"),
+    PlaybookTrigger = "suspend_terminal",
+    AlertTitle      = strcat("POS Anomaly — Potential RAM Scraping on ", DeviceName)
+| project
+    AlertTitle,
+    DeviceName,
+    DeviceId,
+    AlertSeverity,
+    Severity,
+    RiskScore,
+    SignalCount,
+    Signals,
+    SuspiciousDLL,
+    POSProcess,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    FirstSeen,
+    LastSeen
+| sort by RiskScore desc
