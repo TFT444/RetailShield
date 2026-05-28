@@ -16,7 +16,7 @@ def load_rule(filename: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers ─────────────────────────────────────────────────────────────────────────────
 
 def assert_metadata(content: str, key: str, value: str):
     pattern = rf"//\s*{re.escape(key)}\s*:.*{re.escape(value)}"
@@ -35,7 +35,7 @@ def assert_not_contains(content: str, *fragments: str):
         assert fragment not in content, f"Unexpected fragment '{fragment}' found in rule"
 
 
-# ── phishing_detection.kql ────────────────────────────────────────────────────
+# ── phishing_detection.kql ─────────────────────────────────────────────────────────────────────
 
 class TestPhishingDetection:
     RULE = "phishing_detection.kql"
@@ -105,7 +105,6 @@ class TestPhishingDetection:
 
     def test_no_hardcoded_tenant_ids(self):
         content = load_rule(self.RULE)
-        # Tenant IDs follow xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx pattern
         tenant_pattern = re.compile(
             r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
             re.IGNORECASE,
@@ -134,7 +133,7 @@ class TestPhishingDetection:
             assert_contains(content, field)
 
 
-# ── ransomware_indicator.kql ──────────────────────────────────────────────────
+# ── ransomware_indicator.kql ──────────────────────────────────────────────────────────────────
 
 class TestRansomwareIndicator:
     RULE = "ransomware_indicator.kql"
@@ -255,6 +254,332 @@ class TestRansomwareIndicator:
             "MitreTactic",
             "PlaybookTrigger",
             "RiskScore",
+        ]
+        for field in required_fields:
+            assert_contains(content, field)
+
+
+# ── pos_anomaly.kql ─────────────────────────────────────────────────────────────────────────────
+
+class TestPosAnomaly:
+    RULE = "pos_anomaly.kql"
+
+    def test_file_exists(self):
+        assert (RULES_DIR / self.RULE).exists()
+
+    def test_mitre_technique_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "MITRE ATT&CK", "T1056.001")
+
+    def test_mitre_tactic_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Tactic", "Collection")
+
+    def test_severity_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Severity", "High")
+
+    def test_frequency_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Frequency", "15 minutes")
+
+    def test_pos_process_names_defined(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "POSProcessNames", "xstore.exe", "aloha.exe", "posready.exe")
+
+    def test_retail_terminal_prefix_defined(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "RetailTerminalPrefix", '"pos-"', '"till-"', '"kiosk-"')
+
+    def test_unknown_dll_injection_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "UnknownDLLInjection", "DeviceEvents", "ImageLoaded")
+
+    def test_abnormal_transaction_volume_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "AbnormalTransactionVolume",
+            "RetailShield_Logs_CL",
+            "TransactionVolumeThreshold",
+        )
+
+    def test_process_memory_dump_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "ProcessMemoryDump",
+            "ProcessDumped",
+            "ProcDump",
+        )
+
+    def test_suspicious_network_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "SuspiciousNetworkFromPOS",
+            "DeviceNetworkEvents",
+            "RetailIOCWatchlist",
+        )
+
+    def test_playbook_trigger_field_exposed(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "PlaybookTrigger", "suspend_terminal")
+
+    def test_mitre_fields_in_output(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "MitreTechnique", "MitreTactic")
+
+    def test_uses_ingestion_time_not_static_timestamp(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "ingestion_time()")
+        assert_not_contains(content, "datetime(2")
+
+    def test_no_hardcoded_tenant_ids(self):
+        content = load_rule(self.RULE)
+        tenant_pattern = re.compile(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            re.IGNORECASE,
+        )
+        assert not tenant_pattern.search(content), (
+            "Rule contains a hardcoded GUID — use a watchlist or parameter instead"
+        )
+
+    def test_output_contains_required_fields(self):
+        content = load_rule(self.RULE)
+        required_fields = [
+            "AlertTitle",
+            "DeviceName",
+            "DeviceId",
+            "AlertSeverity",
+            "RiskScore",
+            "SignalCount",
+            "Signals",
+            "MitreTechnique",
+            "MitreTactic",
+            "PlaybookTrigger",
+            "FirstSeen",
+            "LastSeen",
+        ]
+        for field in required_fields:
+            assert_contains(content, field)
+
+
+# ── ai_voice_fraud.kql ─────────────────────────────────────────────────────────────────────
+
+class TestAiVoiceFraud:
+    RULE = "ai_voice_fraud.kql"
+
+    def test_file_exists(self):
+        assert (RULES_DIR / self.RULE).exists()
+
+    def test_mitre_technique_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "MITRE ATT&CK", "T1598")
+
+    def test_mitre_tactic_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Tactic", "Reconnaissance")
+
+    def test_severity_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Severity", "High")
+
+    def test_frequency_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Frequency", "30 minutes")
+
+    def test_ai_confidence_threshold_defined(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "AIConfidenceThreshold")
+
+    def test_fraud_keywords_defined(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "FraudKeywords",
+            '"urgent"',
+            '"override"',
+            '"bypass"',
+            '"transfer"',
+        )
+
+    def test_business_hours_defined(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "BusinessHoursStart", "BusinessHoursEnd")
+
+    def test_high_confidence_voice_fraud_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "HighConfidenceVoiceFraud",
+            "RetailShield_Logs_CL",
+            "AI_Voice_Fraud",
+        )
+
+    def test_urgent_financial_request_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "UrgentFinancialRequest")
+
+    def test_spoofed_caller_id_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "SpoofedCallerID")
+
+    def test_after_hours_voice_fraud_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "AfterHoursVoiceFraud", "hourofday")
+
+    def test_playbook_trigger_field_exposed(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "PlaybookTrigger", "notify_soc")
+
+    def test_mitre_fields_in_output(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "MitreTechnique", "MitreTactic")
+
+    def test_uses_ingestion_time_not_static_timestamp(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "ingestion_time()")
+        assert_not_contains(content, "datetime(2")
+
+    def test_no_hardcoded_tenant_ids(self):
+        content = load_rule(self.RULE)
+        tenant_pattern = re.compile(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            re.IGNORECASE,
+        )
+        assert not tenant_pattern.search(content), (
+            "Rule contains a hardcoded GUID — use a watchlist or parameter instead"
+        )
+
+    def test_output_contains_required_fields(self):
+        content = load_rule(self.RULE)
+        required_fields = [
+            "AlertTitle",
+            "DeviceName",
+            "TargetEmployee",
+            "ImpersonatingEntity",
+            "RequestMade",
+            "AlertSeverity",
+            "RiskScore",
+            "SignalCount",
+            "Signals",
+            "MitreTechnique",
+            "MitreTactic",
+            "PlaybookTrigger",
+            "FirstSeen",
+            "LastSeen",
+        ]
+        for field in required_fields:
+            assert_contains(content, field)
+
+
+# ── supply_chain_anomaly.kql ──────────────────────────────────────────────────────────────────
+
+class TestSupplyChainAnomaly:
+    RULE = "supply_chain_anomaly.kql"
+
+    def test_file_exists(self):
+        assert (RULES_DIR / self.RULE).exists()
+
+    def test_mitre_technique_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "MITRE ATT&CK", "T1195")
+
+    def test_mitre_tactic_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Tactic", "Initial Access")
+
+    def test_severity_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Severity", "High")
+
+    def test_frequency_metadata(self):
+        content = load_rule(self.RULE)
+        assert_metadata(content, "Frequency", "30 minutes")
+
+    def test_admin_endpoints_defined(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "AdminEndpoints",
+            '"/admin"',
+            '"/management"',
+            '"/config"',
+        )
+
+    def test_agreeable_endpoints_defined(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "AgreeableEndpoints",
+            '"/inventory"',
+            '"/orders"',
+        )
+
+    def test_bulk_export_threshold_defined(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "BulkExportThreshold")
+
+    def test_supplier_admin_access_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(
+            content,
+            "SupplierAdminAccess",
+            "AzureDiagnostics",
+            "supplier_api_key",
+        )
+
+    def test_new_service_principal_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "NewServicePrincipal", "AuditLogs")
+
+    def test_unauthorised_endpoint_access_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "UnauthorisedEndpointAccess")
+
+    def test_mass_data_export_signal(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "MassDataExport", "BulkExportThreshold")
+
+    def test_playbook_trigger_field_exposed(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "PlaybookTrigger", "notify_soc")
+
+    def test_mitre_fields_in_output(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "MitreTechnique", "MitreTactic")
+
+    def test_uses_ingestion_time_not_static_timestamp(self):
+        content = load_rule(self.RULE)
+        assert_contains(content, "ingestion_time()")
+        assert_not_contains(content, "datetime(2")
+
+    def test_no_hardcoded_tenant_ids(self):
+        content = load_rule(self.RULE)
+        tenant_pattern = re.compile(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            re.IGNORECASE,
+        )
+        assert not tenant_pattern.search(content), (
+            "Rule contains a hardcoded GUID — use a watchlist or parameter instead"
+        )
+
+    def test_output_contains_required_fields(self):
+        content = load_rule(self.RULE)
+        required_fields = [
+            "AlertTitle",
+            "DeviceName",
+            "SupplierKey",
+            "AlertSeverity",
+            "RiskScore",
+            "SignalCount",
+            "Signals",
+            "MitreTechnique",
+            "MitreTactic",
+            "PlaybookTrigger",
+            "FirstSeen",
+            "LastSeen",
         ]
         for field in required_fields:
             assert_contains(content, field)
