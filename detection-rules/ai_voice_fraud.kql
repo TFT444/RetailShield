@@ -1,0 +1,151 @@
+// ============================================================
+// RetailShield — AI Voice Fraud Detection
+// Rule ID      : RS-VOI-001
+// MITRE ATT&CK : T1598 — Phishing for Information (Voice)
+// Tactic       : Reconnaissance
+// Severity     : High
+// Frequency    : Every 30 minutes | Lookback: 30 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// ============================================================
+// Detects AI-generated deepfake voice calls targeting retail
+// finance and management staff. Covers high AI confidence score
+// calls, urgent financial requests from unverified callers,
+// caller ID spoofing patterns, and after-hours vishing attempts.
+// Retail-specific: targets CFO/finance-role impersonation and
+// urgent payment override requests unique to retail operations.
+// ============================================================
+
+let LookbackWindow            = 30m;
+let BusinessHoursStart        = 7;    // 07:00 UTC
+let BusinessHoursEnd          = 20;   // 20:00 UTC
+let AIConfidenceThreshold     = 0.85; // AI voice deepfake confidence above this is high-risk
+let HighRiskSuspicionScore    = 85;
+
+// Roles that are high-value targets for voice fraud
+let SensitiveTargetRoles = dynamic([
+    "finance", "director", "manager", "cfo", "ceo",
+    "payment", "accounts", "payroll", "head"
+]);
+
+// Impersonation personas used in retail voice fraud
+let KnownImpersonationEntities = dynamic([
+    "Area Manager", "Head Office", "CFO", "CEO",
+    "Finance Director", "Regional Director", "DHL",
+    "HMRC", "Bank", "IT Support"
+]);
+
+// Keywords that signal urgency / bypass request — fraud indicators
+let FraudKeywords = dynamic([
+    "urgent", "immediate", "emergency", "override",
+    "bypass", "redirect", "transfer", "wire", "bacs",
+    "authorise", "approve now", "time sensitive", "confidential"
+]);
+
+// ── Signal 1 — High AI confidence score on detected voice call ───────────────
+let HighConfidenceVoiceFraud =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackWindow)
+    | where EventType_s == "AI_Voice_Fraud"
+    | where todouble(AIConfidenceScore_d) >= AIConfidenceThreshold
+    | project
+        TimeGenerated,
+        SignalType          = "HighConfidenceVoiceFraud",
+        TargetEmployee      = tostring(TargetEmployee_s),
+        AIConfidenceScore   = AIConfidenceScore_d,
+        ImpersonatingEntity = tostring(ImpersonatingEntity_s),
+        RequestMade         = tostring(RequestMade_s),
+        SuspicionScore      = todouble(SuspicionScore_d);
+
+// ── Signal 2 — Urgent financial / bypass request on voice channel ────────────
+let UrgentFinancialRequest =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackWindow)
+    | where EventType_s == "AI_Voice_Fraud"
+    | where tolower(tostring(RequestMade_s)) has_any (FraudKeywords)
+    | where tolower(tostring(TargetEmployee_s)) has_any (SensitiveTargetRoles)
+        or tostring(ImpersonatingEntity_s) in (KnownImpersonationEntities)
+    | project
+        TimeGenerated,
+        SignalType          = "UrgentFinancialRequest",
+        TargetEmployee      = tostring(TargetEmployee_s),
+        AIConfidenceScore   = AIConfidenceScore_d,
+        ImpersonatingEntity = tostring(ImpersonatingEntity_s),
+        RequestMade         = tostring(RequestMade_s),
+        SuspicionScore      = todouble(SuspicionScore_d);
+
+// ── Signal 3 — Caller ID spoofing pattern detected ───────────────────────────
+let SpoofedCallerID =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackWindow)
+    | where EventType_s == "AI_Voice_Fraud"
+    | where SuspicionScore_d >= HighRiskSuspicionScore
+    | where isnotempty(CallerID_s)
+    | where tostring(CallerID_s) matches regex @"^(\+44|0044|0)[0-9]{9,10}$"
+    | project
+        TimeGenerated,
+        SignalType          = "SpoofedCallerID",
+        TargetEmployee      = tostring(TargetEmployee_s),
+        AIConfidenceScore   = AIConfidenceScore_d,
+        ImpersonatingEntity = tostring(ImpersonatingEntity_s),
+        RequestMade         = tostring(RequestMade_s),
+        SuspicionScore      = todouble(SuspicionScore_d);
+
+// ── Signal 4 — After-hours vishing attempt ───────────────────────────────────
+let AfterHoursVoiceFraud =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackWindow)
+    | where EventType_s == "AI_Voice_Fraud"
+    | extend CallHour = hourofday(TimeGenerated)
+    | where CallHour < BusinessHoursStart or CallHour >= BusinessHoursEnd
+    | project
+        TimeGenerated,
+        SignalType          = "AfterHoursVoiceFraud",
+        TargetEmployee      = tostring(TargetEmployee_s),
+        AIConfidenceScore   = AIConfidenceScore_d,
+        ImpersonatingEntity = tostring(ImpersonatingEntity_s),
+        RequestMade         = tostring(RequestMade_s),
+        SuspicionScore      = todouble(SuspicionScore_d);
+
+// ── Union all signals ─────────────────────────────────────────────────────────
+union HighConfidenceVoiceFraud, UrgentFinancialRequest, SpoofedCallerID, AfterHoursVoiceFraud
+| summarize
+    SignalCount         = count(),
+    Signals             = make_set(SignalType),
+    FirstSeen           = min(TimeGenerated),
+    LastSeen            = max(TimeGenerated),
+    MaxAIScore          = max(todouble(AIConfidenceScore)),
+    MaxSuspicionScore   = max(todouble(SuspicionScore)),
+    TargetEmployee      = take_any(TargetEmployee),
+    ImpersonatingEntity = take_any(ImpersonatingEntity),
+    RequestMade         = take_any(RequestMade)
+  by bin(TimeGenerated, LookbackWindow)
+| where SignalCount >= 1
+| extend
+    RiskScore       = case(SignalCount >= 3, 90, SignalCount == 2, 78, 65),
+    MitreTechnique  = "T1598",
+    MitreTactic     = "Reconnaissance",
+    AlertSeverity   = case(SignalCount >= 3, "CRITICAL", "HIGH"),
+    Severity        = "HIGH",
+    PlaybookTrigger = "notify_soc",
+    DeviceName      = "VOIP-SYSTEM",
+    AlertTitle      = strcat("AI Voice Fraud Detected — Target: ", TargetEmployee,
+                             " | Impersonating: ", ImpersonatingEntity)
+| project
+    AlertTitle,
+    DeviceName,
+    TargetEmployee,
+    ImpersonatingEntity,
+    RequestMade,
+    AlertSeverity,
+    Severity,
+    RiskScore,
+    SignalCount,
+    Signals,
+    MaxAIScore,
+    MaxSuspicionScore,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    FirstSeen,
+    LastSeen
+| sort by RiskScore desc

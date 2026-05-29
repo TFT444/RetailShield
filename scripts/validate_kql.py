@@ -26,7 +26,8 @@ KNOWN_TABLES = [
     "SecurityEvent", "WindowsEvent", "DeviceProcessEvents",
     "DeviceFileEvents", "DeviceNetworkEvents", "DeviceLogonEvents",
     "CommonSecurityLog", "Syslog", "DnsEvents",
-    "OfficeActivity", "AzureActivity",
+    "OfficeActivity", "AzureActivity", "AzureDiagnostics",
+    "RetailShield_Logs_CL",
 ]
 
 
