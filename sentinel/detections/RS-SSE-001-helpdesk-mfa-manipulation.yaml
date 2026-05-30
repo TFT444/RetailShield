@@ -1,0 +1,174 @@
+id: a1b2c3d4-e5f6-7890-abcd-ef1234560001
+name: RS-SSE-001 — Helpdesk Social Engineering — MFA Method Added After Password Reset
+description: |
+  Detects the Scattered Spider (UNC3944) technique of calling the IT helpdesk to social-
+  engineer a password reset, then immediately registering a new MFA authenticator to take
+  over the account. This exact pattern was observed in the 2025 M&S and Co-op cyber
+  incidents (DragonForce / Scattered Spider affiliate activity).
+
+  True positive: a user's password is reset by an admin (or self-service), and within
+  30 minutes a new authentication method (authenticator app, phone number) is registered
+  — ideally from a foreign IP or an unmanaged / non-domain-joined device.
+
+  Tuning levers:
+    - CorrelationWindow (default 30 min): shorten to 15 min to reduce false positives
+      in environments where legitimate MFA re-registration after resets is common.
+    - KnownThreatGeos: add / remove country codes to match your threat intelligence.
+    - Exclude corporate helpdesk UPNs from InitiatorUPN if admin-initiated resets fire
+      for routine onboarding workflows.
+
+  MITRE ATT&CK:
+    T1098.005 — Account Manipulation: Device Registration
+    T1556.006 — Modify Authentication Process: Multi-Factor Authentication
+
+severity: High
+status: Available
+
+requiredDataConnectors:
+  - connectorId: AzureActiveDirectory
+    dataTypes:
+      - AuditLogs
+      - SigninLogs
+
+queryFrequency: 30m
+queryPeriod: 2h
+triggerOperator: gt
+triggerThreshold: 0
+
+tactics:
+  - Persistence
+  - CredentialAccess
+
+relevantTechniques:
+  - T1098.005
+  - T1556.006
+
+query: |
+  // ── Tuning levers ────────────────────────────────────────────────────────────────
+  let LookbackWindow    = 2h;
+  // Max minutes between password reset and MFA registration to flag as correlated
+  let CorrelationWindow = 30m;
+  // Country codes associated with Scattered Spider-adjacent threat clusters.
+  // Remove or expand based on your own threat intelligence.
+  let KnownThreatGeos = dynamic(["NG", "RU", "CN", "KP", "IR"]);
+  //
+  // ── Step 1: Password reset events (admin-initiated and self-service) ──────────────
+  // Scattered Spider TTP: social-engineer helpdesk → force a password reset
+  let PasswordResets =
+      AuditLogs
+      | where ingestion_time() > ago(LookbackWindow)
+      | where OperationName in (
+            "Reset password (by admin)",
+            "Reset password (self-service)",
+            "Change user password"
+        )
+      | where Result == "success"
+      | extend
+          TargetUPN    = tostring(TargetResources[0].userPrincipalName),
+          InitiatorUPN = tostring(InitiatedBy.user.userPrincipalName),
+          InitiatorIP  = tostring(InitiatedBy.user.ipAddress)
+      | where isnotempty(TargetUPN)
+      | project ResetTime = TimeGenerated, TargetUPN, InitiatorUPN, InitiatorIP;
+  //
+  // ── Step 2: MFA / security info registration events ──────────────────────────────
+  // T1098.005: attacker registers a new authenticator app or phone to take over account.
+  // T1556.006: attacker modifies the MFA method to weaken or bypass the control.
+  let MFARegistrations =
+      AuditLogs
+      | where ingestion_time() > ago(LookbackWindow)
+      | where OperationName in (
+            "User registered security info",
+            "User registered all required security info",
+            "User updated security info",
+            "Admin registered security info for user"
+        )
+      | where Result == "success"
+      | extend
+          TargetUPN   = tostring(TargetResources[0].userPrincipalName),
+          MethodAdded = tostring(AdditionalDetails[0].value),
+          RegIP       = tostring(InitiatedBy.user.ipAddress)
+      | where isnotempty(TargetUPN)
+      | project RegTime = TimeGenerated, TargetUPN, MethodAdded, RegIP;
+  //
+  // ── Step 3: Recent sign-in geography per user (pre-aggregated — no join fanout) ───
+  let RecentSignins =
+      SigninLogs
+      | where ingestion_time() > ago(LookbackWindow)
+      | where ResultType == 0    // successful sign-in only
+      | summarize arg_max(TimeGenerated, IPAddress, LocationDetails, DeviceDetail)
+          by UserPrincipalName
+      | extend
+          Country   = tostring(LocationDetails.countryOrRegion),
+          City      = tostring(LocationDetails.city),
+          TrustType = tostring(DeviceDetail.trustType)
+      | project UserPrincipalName, Country, City, TrustType;
+  //
+  // ── Step 4: Correlate — MFA registration within CorrelationWindow of a reset ─────
+  PasswordResets
+  | join kind=inner (MFARegistrations) on TargetUPN
+  | where RegTime between (ResetTime .. (ResetTime + CorrelationWindow))
+  //
+  // ── Step 5: Enrich with sign-in geography ────────────────────────────────────────
+  | join kind=leftouter (RecentSignins) on $left.TargetUPN == $right.UserPrincipalName
+  //
+  // ── Step 6: Flag and score ────────────────────────────────────────────────────────
+  | extend
+      MinutesBetween    = datetime_diff('minute', RegTime, ResetTime),
+      IsKnownThreatGeo  = iff(isnotempty(Country) and Country in (KnownThreatGeos), true, false),
+      IsUnmanagedDevice = isempty(TrustType)
+  | extend
+      AlertSeverity = case(
+          IsKnownThreatGeo,                             "High",
+          IsUnmanagedDevice and MinutesBetween <= 10,   "High",
+          "Medium"
+      )
+  | project
+      TimeGenerated     = RegTime,
+      UserPrincipalName = TargetUPN,
+      PasswordResetTime = ResetTime,
+      MFARegisteredTime = RegTime,
+      MinutesBetween,
+      MethodAdded,
+      RegistrationIP    = RegIP,
+      ResetInitiatedBy  = InitiatorUPN,
+      InitiatorIP,
+      Country,
+      City,
+      TrustType,
+      IsKnownThreatGeo,
+      IsUnmanagedDevice,
+      AlertSeverity,
+      IPAddress         = RegIP    // entity-mapping anchor
+  | sort by TimeGenerated desc
+
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: UserPrincipalName
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: IPAddress
+
+alertDetailsOverride:
+  alertDisplayNameFormat: "Helpdesk Social Engineering — MFA manipulation detected for {{UserPrincipalName}}"
+
+customDetails:
+  MinutesBetween: MinutesBetween
+  MethodAdded: MethodAdded
+  Country: Country
+  IsKnownThreatGeo: IsKnownThreatGeo
+
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 5h
+    matchingMethod: AllEntities
+    groupByEntities:
+      - Account
+
+version: 1.0.0
+kind: Scheduled
