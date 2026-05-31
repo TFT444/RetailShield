@@ -1,5 +1,270 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
-  "comment": "Placeholder — triage and classify Logic App workflow to be implemented"
+  "parameters": {
+    "PlaybookName": {
+      "type": "string",
+      "defaultValue": "RetailShield-TriageClassify",
+      "metadata": { "description": "Name of the Logic App playbook resource." }
+    }
+  },
+  "variables": {
+    "SentinelConnectionName": "[concat('azuresentinel-', parameters('PlaybookName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('SentinelConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('SentinelConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+        },
+        "parameterValueType": "Alternative"
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('PlaybookName')]",
+      "location": "[resourceGroup().location]",
+      "identity": { "type": "SystemAssigned" },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', variables('SentinelConnectionName'))]"
+      ],
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": { "type": "Object" }
+          },
+          "triggers": {
+            "Microsoft_Sentinel_incident": {
+              "type": "ApiConnectionWebhook",
+              "inputs": {
+                "body": { "callback_url": "@{listCallbackUrl()}" },
+                "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                "path": "/subscribe"
+              }
+            }
+          },
+          "actions": {
+            "Initialize_Classification": {
+              "type": "InitializeVariable",
+              "runAfter": {},
+              "inputs": { "variables": [{ "name": "Classification", "type": "string", "value": "Unclassified" }] }
+            },
+            "Initialize_RetailCategory": {
+              "type": "InitializeVariable",
+              "runAfter": {},
+              "inputs": { "variables": [{ "name": "RetailCategory", "type": "string", "value": "General" }] }
+            },
+            "Classify_by_title": {
+              "type": "If",
+              "runAfter": {
+                "Initialize_Classification": ["Succeeded"],
+                "Initialize_RetailCategory": ["Succeeded"]
+              },
+              "expression": {
+                "or": [
+                  { "contains": ["@triggerBody()?['object']?['properties']?['title']", "MFA"] },
+                  { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Push Bombing"] },
+                  { "contains": ["@triggerBody()?['object']?['properties']?['title']", "MFA Fatigue"] }
+                ]
+              },
+              "actions": {
+                "Set_MFA_Classification": {
+                  "type": "SetVariable",
+                  "inputs": { "name": "Classification", "value": "Identity-MFA-Abuse" }
+                },
+                "Set_MFA_Category": {
+                  "type": "SetVariable",
+                  "runAfter": { "Set_MFA_Classification": ["Succeeded"] },
+                  "inputs": { "name": "RetailCategory", "value": "Identity Attack" }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Check_Social_Engineering": {
+                    "type": "If",
+                    "expression": {
+                      "or": [
+                        { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Helpdesk"] },
+                        { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Social Engineering"] }
+                      ]
+                    },
+                    "actions": {
+                      "Set_SE_Classification": {
+                        "type": "SetVariable",
+                        "inputs": { "name": "Classification", "value": "Identity-Social-Engineering" }
+                      },
+                      "Set_SE_Category": {
+                        "type": "SetVariable",
+                        "runAfter": { "Set_SE_Classification": ["Succeeded"] },
+                        "inputs": { "name": "RetailCategory", "value": "Identity Attack" }
+                      }
+                    },
+                    "else": {
+                      "actions": {
+                        "Check_Privilege_Escalation": {
+                          "type": "If",
+                          "expression": {
+                            "or": [
+                              { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Privileged Role"] },
+                              { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Role Addition"] }
+                            ]
+                          },
+                          "actions": {
+                            "Set_PrivEsc_Classification": {
+                              "type": "SetVariable",
+                              "inputs": { "name": "Classification", "value": "Privilege-Escalation" }
+                            },
+                            "Set_PrivEsc_Category": {
+                              "type": "SetVariable",
+                              "runAfter": { "Set_PrivEsc_Classification": ["Succeeded"] },
+                              "inputs": { "name": "RetailCategory", "value": "Identity Attack" }
+                            }
+                          },
+                          "else": {
+                            "actions": {
+                              "Check_Supplier": {
+                                "type": "If",
+                                "expression": {
+                                  "or": [
+                                    { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Supplier"] },
+                                    { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Third-Party"] },
+                                    { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Impossible Travel"] }
+                                  ]
+                                },
+                                "actions": {
+                                  "Set_Supplier_Classification": {
+                                    "type": "SetVariable",
+                                    "inputs": { "name": "Classification", "value": "Third-Party-Compromise" }
+                                  },
+                                  "Set_Supplier_Category": {
+                                    "type": "SetVariable",
+                                    "runAfter": { "Set_Supplier_Classification": ["Succeeded"] },
+                                    "inputs": { "name": "RetailCategory", "value": "Supply Chain" }
+                                  }
+                                },
+                                "else": {
+                                  "actions": {
+                                    "Check_POS": {
+                                      "type": "If",
+                                      "expression": {
+                                        "or": [
+                                          { "contains": ["@triggerBody()?['object']?['properties']?['title']", "POS"] },
+                                          { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Void"] },
+                                          { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Refund"] }
+                                        ]
+                                      },
+                                      "actions": {
+                                        "Set_POS_Classification": {
+                                          "type": "SetVariable",
+                                          "inputs": { "name": "Classification", "value": "POS-Fraud" }
+                                        },
+                                        "Set_POS_Category": {
+                                          "type": "SetVariable",
+                                          "runAfter": { "Set_POS_Classification": ["Succeeded"] },
+                                          "inputs": { "name": "RetailCategory", "value": "Point-of-Sale Fraud" }
+                                        }
+                                      },
+                                      "else": {
+                                        "actions": {
+                                          "Check_GiftCard": {
+                                            "type": "If",
+                                            "expression": {
+                                              "or": [
+                                                { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Gift"] },
+                                                { "contains": ["@triggerBody()?['object']?['properties']?['title']", "Gift-Card"] }
+                                              ]
+                                            },
+                                            "actions": {
+                                              "Set_GC_Classification": {
+                                                "type": "SetVariable",
+                                                "inputs": { "name": "Classification", "value": "Financial-GiftCard" }
+                                              },
+                                              "Set_GC_Category": {
+                                                "type": "SetVariable",
+                                                "runAfter": { "Set_GC_Classification": ["Succeeded"] },
+                                                "inputs": { "name": "RetailCategory", "value": "Financial Fraud" }
+                                              }
+                                            },
+                                            "else": { "actions": {} }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "Tag_incident": {
+              "type": "ApiConnection",
+              "runAfter": { "Classify_by_title": ["Succeeded"] },
+              "inputs": {
+                "body": {
+                  "incidentArmId": "@triggerBody()?['object']?['id']",
+                  "tagsToAdd": {
+                    "TagsToAdd": [
+                      { "Tag": "@variables('Classification')" },
+                      { "Tag": "@variables('RetailCategory')" }
+                    ]
+                  }
+                },
+                "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                "method": "put",
+                "path": "/Incidents"
+              }
+            },
+            "Add_classification_comment": {
+              "type": "ApiConnection",
+              "runAfter": { "Tag_incident": ["Succeeded"] },
+              "inputs": {
+                "body": {
+                  "incidentArmId": "@triggerBody()?['object']?['id']",
+                  "message": "## RetailShield Auto-Triage\n\n| Field | Value |\n|---|---|\n| **Classification** | `@{variables('Classification')}` |\n| **Retail Category** | `@{variables('RetailCategory')}` |\n| **Incident Title** | @{triggerBody()?['object']?['properties']?['title']} |\n| **Severity** | @{triggerBody()?['object']?['properties']?['severity']} |\n\nThis incident has been automatically classified based on title pattern matching. Adjust the classification tag if needed.\n\n*Playbook: RetailShield-TriageClassify*"
+                },
+                "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                "method": "post",
+                "path": "/Incidents/Comment"
+              }
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azuresentinel": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('SentinelConnectionName'))]",
+                "connectionName": "[variables('SentinelConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]",
+                "connectionProperties": { "authentication": { "type": "ManagedServiceIdentity" } }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "PlaybookResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Logic/workflows', parameters('PlaybookName'))]"
+    }
+  }
 }
