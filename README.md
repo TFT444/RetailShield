@@ -43,20 +43,20 @@ Retail is the most breach-targeted industry in the UK and globally. The conseque
 
 Retailers face a unique attack surface: fragmented POS networks, seasonal workforce spikes, large third-party supplier ecosystems, and high-volume transaction data that masks malicious activity. Generic SIEM rules produce alert fatigue without retail-specific context.
 
-**RetailShield** closes that gap — purpose-built detection logic tuned to retail TTPs, automated Logic App playbooks that respond in seconds, and a dashboard that gives SOC analysts immediate situational awareness without drowning them in noise.
+**RetailShield** closes that gap — purpose-built detection logic tuned to retail TTPs, three Azure Logic App playbooks for automated triage, enrichment, and containment (Azure configuration required), and a dashboard that gives SOC analysts immediate situational awareness without drowning them in noise.
 
 ---
 
 ## Architecture
 
 ```
-                        ┌─────────────────────────────────────────────────┐
+                        ┌───────────────────────────────────────────────┐
                         │              RETAIL DATA SOURCES                │
                         │  POS Systems │ ERP/SAP │ IAM │ Cloud Apps │ EDR │
-                        └───────────────────────┬─────────────────────────┘
+                        └───────────────────────┬───────────────────────┘
                                                 │  Log Ingestion
-                                                ▼
-                        ┌─────────────────────────────────────────────────┐
+                                                ↓
+                        ┌───────────────────────────────────────────────┐
                         │           MICROSOFT SENTINEL (SIEM)             │
                         │                                                 │
                         │  ┌─────────────────┐   ┌─────────────────────┐ │
@@ -70,9 +70,9 @@ Retailers face a unique attack surface: fragmented POS networks, seasonal workfo
                         │                        │    Incident Engine  │ │
                         │                        │  (Fusion + ML UEBA) │ │
                         │                        └──────────┬──────────┘ │
-                        └───────────────────────────────────┼────────────┘
+                        └───────────────────────────────────────────┬──────────┘
                                                             │ Trigger
-                        ┌───────────────────────────────────▼────────────┐
+                        ┌───────────────────────────────────────▼──────────┐
                         │           AZURE LOGIC APPS (SOAR)              │
                         │                                                 │
                         │  ┌──────────────┐  ┌──────────┐  ┌──────────┐ │
@@ -81,13 +81,13 @@ Retailers face a unique attack surface: fragmented POS networks, seasonal workfo
                         │  │  Playbook    │  │  Intel)  │  │Disable AD)│ │
                         │  └──────────────┘  └──────────┘  └──────────┘ │
                         │                                                 │
-                        │  ┌──────────────┐  ┌──────────────────────────┐│
+                        │  ┌──────────────┐  ┌────────────────────────┐│
                         │  │  Notify SOC  │  │  Create Ticket (JIRA /   ││
                         │  │  (Teams/PD)  │  │  ServiceNow)             ││
-                        │  └──────────────┘  └──────────────────────────┘│
-                        └───────────────────────────────────┬────────────┘
+                        │  └──────────────┘  └────────────────────────┘│
+                        └───────────────────────────────────────────┬──────────┘
                                                             │ Status / Metrics
-                        ┌───────────────────────────────────▼────────────┐
+                        ┌───────────────────────────────────────▼──────────┐
                         │         RETAILSHIELD DASHBOARD (React)         │
                         │                                                 │
                         │   Live Incident Feed │ TTP Heatmap │ KPIs      │
@@ -125,16 +125,16 @@ The detection rules in this project map to the following MITRE ATT&CK (Enterpris
 
 | Feature | Description | Status |
 |---|---|---|
-| **Retail-Tuned KQL Rules** | 15+ detection rules pre-mapped to MITRE ATT&CK, calibrated for POS, ERP, and IAM log patterns | Planned |
-| **Automated Triage Playbooks** | Logic App workflows that enrich, classify, and assign incidents without analyst intervention | Planned |
-| **Containment Automation** | One-click and auto-triggered: block IP, disable AD account, isolate host via Defender | Planned |
-| **Threat Intel Enrichment** | Auto-lookup of IOCs against Microsoft TI, VirusTotal, and AbuseIPDB | Planned |
+| **Retail-Tuned KQL Rules** | 6 Sentinel scheduled analytics rules (YAML) targeting Scattered Spider / UNC3944 TTPs + KQL rules in `detection-rules/` | Available |
+| **Automated Triage Playbooks** | Logic App workflow that classifies incidents by title pattern and tags with retail category | Available (requires configuration) |
+| **Containment Automation** | Auto-triggered: block IPs in NSG, disable AAD accounts, isolate hosts via Defender for Endpoint | Available (requires configuration) |
+| **Threat Intel Enrichment** | Auto-lookup of IP entities against AbuseIPDB and VirusTotal; raises severity on positive hits | Available (requires configuration) |
 | **SOAR Notification Layer** | Immediate alerts to Microsoft Teams channel and PagerDuty with full incident context | Planned |
-| **Live SOC Dashboard** | React + TypeScript frontend consuming Sentinel APIs; incident feed, TTP heatmap, analyst KPIs | Planned |
+| **Live SOC Dashboard** | React + TypeScript frontend consuming Sentinel APIs; incident feed, TTP heatmap, analyst KPIs | In Development |
 | **JIRA / ServiceNow Integration** | Auto-create tickets with priority, assignee, and evidence attached | Planned |
 | **Unit & Integration Tests** | KQL rule validation, playbook schema checks, and frontend component tests | Planned |
-| **CI/CD Pipeline** | GitHub Actions: lint, test, and deploy Sentinel artefacts on merge to main | Planned |
-| **Comprehensive Docs** | Architecture decision records, runbooks, and onboarding guides | Planned |
+| **CI/CD Pipeline** | GitHub Actions: lint, test, and deploy Sentinel artefacts on merge to main | Available |
+| **Comprehensive Docs** | Architecture decision records, runbooks, and onboarding guides | In Development |
 
 ---
 
@@ -160,9 +160,11 @@ RetailShield/
 │   ├── triage-classify/
 │   │   └── workflow.json           # Auto-triage and severity classification
 │   ├── threat-intel-enrich/
-│   │   └── workflow.json           # IOC enrichment (VT, AbuseIPDB, MSFT TI)
+│   │   └── workflow.json           # IOC enrichment (AbuseIPDB, VirusTotal)
 │   ├── containment/
-│   │   └── workflow.json           # Block IP / Disable AD / Isolate host
+│   │   ├── workflow.json           # Block IP / Disable AD / Isolate host
+│   │   └── README.md
+│   ├── DEPLOYMENT.md               # Step-by-step deployment guide
 │   └── README.md
 │
 ├── playbooks/
@@ -183,6 +185,16 @@ RetailShield/
 │   └── README.md
 │
 ├── sentinel/
+│   ├── detections/                  # Sentinel scheduled analytics rules (YAML)
+│   │   ├── RS-SSE-001-helpdesk-mfa-manipulation.yaml
+│   │   ├── RS-SSE-002-mfa-fatigue-push-bombing.yaml
+│   │   ├── RS-SSE-003-privileged-role-addition.yaml
+│   │   ├── RS-SSE-004-supplier-impossible-travel.yaml
+│   │   ├── RS-POS-002-offhours-void-refund.yaml
+│   │   ├── RS-FRD-001-giftcard-refund-fraud.yaml
+│   │   └── README.md
+│   ├── hunting/
+│   │   └── README.md
 │   ├── workbooks/
 │   │   └── retailshield-workbook.json   # Sentinel Workbook ARM template
 │   ├── data-connectors/
@@ -250,12 +262,13 @@ python scripts/deploy_rules.py \
 
 ### 3. Deploy Logic App playbooks
 
+See [logic-apps/DEPLOYMENT.md](logic-apps/DEPLOYMENT.md) for the full step-by-step guide.
+
 ```bash
-# Deploy all SOAR playbooks via ARM template
+# Quick deploy — triage playbook (no API keys required)
 az deployment group create \
   --resource-group "<RESOURCE_GROUP>" \
-  --template-file logic-apps/triage-classify/workflow.json \
-  --parameters workspaceName="<SENTINEL_WORKSPACE>"
+  --template-file logic-apps/triage-classify/workflow.json
 ```
 
 ### 4. Run the SOC dashboard locally
