@@ -1,0 +1,125 @@
+// ============================================================
+// RetailShield — POS Off-Hours Void / Refund Anomaly
+// MITRE ATT&CK : T1056.001 — Keylogging / Input Capture (POS)
+// Tactic       : Collection
+// Severity     : High
+// Frequency    : Every 5 minutes | Lookback: 30 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : UK retail insider fraud — employees processing late-night
+//                voids to siphon cash; CIFAS insider fraud report 2024
+// ============================================================
+
+let LookbackPeriod      = 30m;
+let BusinessHourStart   = 7;      // 07:00
+let BusinessHourEnd     = 21;     // 21:00
+let VoidRefundThresh    = 5;      // per operator per window
+let HighValueThresh     = 500.0;  // GBP — high-value void/refund without override
+
+// ── Step 1: Voids / refunds processed outside business hours ─────────────────
+let AfterHoursVoids =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s in ("VOID", "REFUND", "RETURN")
+    | where isnotempty(OperatorId_s)
+    | extend HourOfDay = hourofday(TimeGenerated)
+    | where HourOfDay < BusinessHourStart or HourOfDay >= BusinessHourEnd
+    | summarize
+        TransactionCount = count(),
+        TotalValue       = sum(toreal(TransactionAmount_d)),
+        TerminalIDs      = make_set(TerminalId_s, 5),
+        TransactionTypes = make_set(TransactionType_s, 3),
+        EarliestTx       = min(TimeGenerated),
+        LatestTx         = max(TimeGenerated)
+        by OperatorId_s, StoreId_s, bin(TimeGenerated, 5m)
+    | extend ThreatSignal = "AfterHoursVoidRefund";
+
+// ── Step 2: High-volume voids / refunds per operator in a single session ──────
+let HighVolumeVoids =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s in ("VOID", "REFUND", "RETURN")
+    | where isnotempty(OperatorId_s)
+    | summarize
+        TransactionCount = count(),
+        TotalValue       = sum(toreal(TransactionAmount_d)),
+        TerminalIDs      = make_set(TerminalId_s, 5),
+        TransactionTypes = make_set(TransactionType_s, 3),
+        EarliestTx       = min(TimeGenerated),
+        LatestTx         = max(TimeGenerated)
+        by OperatorId_s, StoreId_s, bin(TimeGenerated, 5m)
+    | where TransactionCount >= VoidRefundThresh
+    | extend ThreatSignal = "HighVolumeVoidRefund";
+
+// ── Step 3: High-value void without manager override ─────────────────────────
+let HighValueVoidNoOverride =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s in ("VOID", "REFUND")
+    | where toreal(TransactionAmount_d) >= HighValueThresh
+    | where isempty(ManagerOverrideId_s) or ManagerOverrideId_s == ""
+    | extend ThreatSignal = "HighValueVoidNoOverride";
+
+// ── Step 4: Refund to different tender type than original payment ─────────────
+let TenderMismatchRefund =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "REFUND"
+    | where isnotempty(OriginalTenderType_s) and isnotempty(RefundTenderType_s)
+    | where OriginalTenderType_s != RefundTenderType_s
+    | where RefundTenderType_s in ("CASH", "GIFT_CARD")  // higher-risk refund tenders
+    | extend ThreatSignal = "TenderMismatchRefund";
+
+// ── Step 5: Union all signals ─────────────────────────────────────────────────
+union
+    (AfterHoursVoids
+        | extend
+            TransactionAmount_d = TotalValue,
+            TerminalId_s = tostring(TerminalIDs[0]),
+            ManagerOverrideId_s = "",
+            OriginalTenderType_s = "", RefundTenderType_s = ""),
+    (HighVolumeVoids
+        | extend
+            TransactionAmount_d = TotalValue,
+            TerminalId_s = tostring(TerminalIDs[0]),
+            ManagerOverrideId_s = "",
+            OriginalTenderType_s = "", RefundTenderType_s = ""),
+    (HighValueVoidNoOverride
+        | extend
+            TransactionCount = 1,
+            TotalValue = toreal(TransactionAmount_d),
+            TerminalIDs = pack_array(TerminalId_s),
+            TransactionTypes = pack_array(TransactionType_s),
+            EarliestTx = TimeGenerated, LatestTx = TimeGenerated,
+            OriginalTenderType_s = "", RefundTenderType_s = ""),
+    (TenderMismatchRefund
+        | extend
+            TransactionCount = 1,
+            TotalValue = toreal(TransactionAmount_d),
+            TerminalIDs = pack_array(TerminalId_s),
+            TransactionTypes = pack_array(TransactionType_s),
+            EarliestTx = TimeGenerated, LatestTx = TimeGenerated,
+            ManagerOverrideId_s = "")
+| extend
+    AlertSeverity   = "High",
+    MitreTechnique  = "T1056.001",
+    MitreTactic     = "Collection",
+    PlaybookTrigger = "notify_soc",
+    RiskScore       = 80
+| project
+    Timestamp        = coalesce(EarliestTx, TimeGenerated),
+    OperatorId_s,
+    StoreId_s,
+    TerminalId_s,
+    ThreatSignal,
+    TransactionCount,
+    TotalValue,
+    TransactionTypes,
+    OriginalTenderType_s,
+    RefundTenderType_s,
+    ManagerOverrideId_s,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by Timestamp desc
