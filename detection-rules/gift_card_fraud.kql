@@ -1,0 +1,142 @@
+// ============================================================
+// RetailShield — Gift-Card / High-Velocity Refund Fraud
+// MITRE ATT&CK : T1657 — Financial Theft
+// Tactic       : Impact
+// Severity     : High
+// Frequency    : Every 5 minutes | Lookback: 30 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : Organised retail crime — gift card draining via stolen
+//                activations and refund abuse across multiple store locations
+// ============================================================
+
+let LookbackPeriod        = 30m;
+let GiftCardActivThresh   = 10;    // activations per terminal in window
+let StructuringThreshold  = 200.0; // GBP — transactions just below this = structuring risk
+let StructuringBand       = 20.0;  // GBP — tolerance band (180–200 = structured)
+let MultiTerminalThresh   = 3;     // same card at N different terminals = suspicious
+let DrainWindowMins       = 15;    // minutes — refund then re-activation window
+
+// ── Step 1: High-velocity gift card activations at a single terminal ──────────
+let HighVelocityActivations =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "GIFT_CARD_ACTIVATE"
+    | where isnotempty(TerminalId_s)
+    | summarize
+        ActivationCount  = count(),
+        UniqueCards      = dcount(GiftCardNumber_s),
+        TotalValue       = sum(toreal(TransactionAmount_d)),
+        OperatorIDs      = make_set(OperatorId_s, 5),
+        EarliestTx       = min(TimeGenerated),
+        LatestTx         = max(TimeGenerated)
+        by TerminalId_s, StoreId_s, bin(TimeGenerated, 5m)
+    | where ActivationCount >= GiftCardActivThresh
+    | extend ThreatSignal = "HighVelocityGiftCardActivation";
+
+// ── Step 2: Structured transactions — purchases just below reporting threshold ─
+let StructuredPurchases =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s in ("GIFT_CARD_ACTIVATE", "GIFT_CARD_RELOAD")
+    | extend TxAmount = toreal(TransactionAmount_d)
+    | where TxAmount >= (StructuringThreshold - StructuringBand)
+        and TxAmount < StructuringThreshold
+    | summarize
+        StructuredCount  = count(),
+        TotalValue       = sum(TxAmount),
+        UniqueCards      = dcount(GiftCardNumber_s),
+        TerminalIDs      = make_set(TerminalId_s, 5),
+        EarliestTx       = min(TimeGenerated),
+        LatestTx         = max(TimeGenerated)
+        by OperatorId_s, StoreId_s, bin(TimeGenerated, 5m)
+    | where StructuredCount >= 3                         // multiple structured tx = pattern
+    | extend ThreatSignal = "StructuredGiftCardPurchase";
+
+// ── Step 3: Drain-and-reload — refund then re-activation of same card ─────────
+let DrainAndReload =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "GIFT_CARD_REFUND"
+    | where isnotempty(GiftCardNumber_s)
+    | join kind=inner (
+        RetailShield_POS_CL
+        | where ingestion_time() > ago(LookbackPeriod)
+        | where TransactionType_s == "GIFT_CARD_ACTIVATE"
+        | project
+            GiftCardNumber_s,
+            ReactivateTime   = TimeGenerated,
+            ReactivateStore  = StoreId_s,
+            ReactivateTerm   = TerminalId_s
+    ) on GiftCardNumber_s
+    | where ReactivateTime > TimeGenerated
+        and ReactivateTime < TimeGenerated + totimespan(strcat(tostring(DrainWindowMins), "m"))
+    | extend ThreatSignal = "GiftCardDrainAndReload";
+
+// ── Step 4: Same card used at multiple terminals in short window ──────────────
+let MultiTerminalCard =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s in ("GIFT_CARD_REDEEM", "GIFT_CARD_BALANCE_CHECK")
+    | where isnotempty(GiftCardNumber_s)
+    | summarize
+        TerminalCount   = dcount(TerminalId_s),
+        StoreCount      = dcount(StoreId_s),
+        TerminalList    = make_set(TerminalId_s, 10),
+        TxCount         = count(),
+        EarliestTx      = min(TimeGenerated),
+        LatestTx        = max(TimeGenerated)
+        by GiftCardNumber_s, bin(TimeGenerated, 10m)
+    | where TerminalCount >= MultiTerminalThresh
+    | extend ThreatSignal = "GiftCardMultiTerminalUse";
+
+// ── Step 5: Union all signals ─────────────────────────────────────────────────
+union
+    (HighVelocityActivations
+        | extend
+            GiftCardNumber_s = "", OperatorId_s = tostring(OperatorIDs[0]),
+            StructuredCount = ActivationCount, TerminalList = dynamic([]),
+            TerminalCount = 1, StoreCount = 1,
+            ReactivateStore = "", ReactivateTerm = ""),
+    (StructuredPurchases
+        | extend
+            GiftCardNumber_s = "", ActivationCount = StructuredCount,
+            UniqueCards = 0, TerminalList = dynamic([]),
+            TerminalCount = 1, StoreCount = 1,
+            ReactivateStore = "", ReactivateTerm = "",
+            TerminalId_s = tostring(TerminalIDs[0])),
+    (DrainAndReload
+        | extend
+            ActivationCount = 1, StructuredCount = 1,
+            UniqueCards = 1, TotalValue = toreal(TransactionAmount_d),
+            TerminalList = dynamic([]), TerminalCount = 1, StoreCount = 1,
+            OperatorId_s = "", EarliestTx = TimeGenerated, LatestTx = ReactivateTime),
+    (MultiTerminalCard
+        | extend
+            ActivationCount = TxCount, StructuredCount = TxCount,
+            UniqueCards = 1, TotalValue = 0.0,
+            OperatorId_s = "", TerminalId_s = "", StoreId_s = "",
+            ReactivateStore = "", ReactivateTerm = "")
+| extend
+    AlertSeverity   = "High",
+    MitreTechnique  = "T1657",
+    MitreTactic     = "Impact",
+    PlaybookTrigger = "notify_soc",
+    RiskScore       = 85
+| project
+    Timestamp        = coalesce(EarliestTx, TimeGenerated),
+    GiftCardNumber_s,
+    OperatorId_s,
+    StoreId_s,
+    TerminalId_s,
+    ThreatSignal,
+    ActivationCount,
+    UniqueCards,
+    TotalValue,
+    TerminalCount,
+    TerminalList,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by Timestamp desc
