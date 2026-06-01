@@ -1,5 +1,237 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
-  "comment": "Placeholder — threat intel enrichment Logic App workflow to be implemented"
+  "parameters": {
+    "PlaybookName": {
+      "type": "string",
+      "defaultValue": "RetailShield-ThreatIntelEnrich",
+      "metadata": { "description": "Name of the Logic App playbook resource." }
+    },
+    "AbuseIPDBApiKey": {
+      "type": "securestring",
+      "metadata": { "description": "AbuseIPDB v2 API key. Register at https://www.abuseipdb.com/account/api." }
+    },
+    "VirusTotalApiKey": {
+      "type": "securestring",
+      "metadata": { "description": "VirusTotal public or premium API key." }
+    },
+    "AbuseIPDBThreshold": {
+      "type": "int",
+      "defaultValue": 75,
+      "metadata": { "description": "AbuseIPDB confidence score threshold (0-100) to flag an IP as malicious." }
+    },
+    "VirusTotalThreshold": {
+      "type": "int",
+      "defaultValue": 3,
+      "metadata": { "description": "Minimum number of VirusTotal malicious engine detections to flag an IP." }
+    }
+  },
+  "variables": {
+    "SentinelConnectionName": "[concat('azuresentinel-', parameters('PlaybookName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('SentinelConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('SentinelConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+        },
+        "parameterValueType": "Alternative"
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('PlaybookName')]",
+      "location": "[resourceGroup().location]",
+      "identity": { "type": "SystemAssigned" },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', variables('SentinelConnectionName'))]"
+      ],
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": { "type": "Object" },
+            "AbuseIPDBApiKey": { "type": "SecureString" },
+            "VirusTotalApiKey": { "type": "SecureString" },
+            "AbuseIPDBThreshold": { "type": "Int" },
+            "VirusTotalThreshold": { "type": "Int" }
+          },
+          "triggers": {
+            "Microsoft_Sentinel_incident": {
+              "type": "ApiConnectionWebhook",
+              "inputs": {
+                "body": { "callback_url": "@{listCallbackUrl()}" },
+                "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                "path": "/subscribe"
+              }
+            }
+          },
+          "actions": {
+            "Initialize_EnrichmentLines": {
+              "type": "InitializeVariable",
+              "runAfter": {},
+              "inputs": { "variables": [{ "name": "EnrichmentLines", "type": "array", "value": [] }] }
+            },
+            "Initialize_MaliciousFound": {
+              "type": "InitializeVariable",
+              "runAfter": {},
+              "inputs": { "variables": [{ "name": "MaliciousFound", "type": "boolean", "value": false }] }
+            },
+            "Entities_Get_IPs": {
+              "type": "ApiConnection",
+              "runAfter": {
+                "Initialize_EnrichmentLines": ["Succeeded"],
+                "Initialize_MaliciousFound": ["Succeeded"]
+              },
+              "inputs": {
+                "body": "@triggerBody()?['object']?['properties']?['relatedEntities']",
+                "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                "method": "post",
+                "path": "/Entities/Ip"
+              }
+            },
+            "For_each_IP": {
+              "type": "Foreach",
+              "runAfter": { "Entities_Get_IPs": ["Succeeded"] },
+              "foreach": "@body('Entities_Get_IPs')?['IPs']",
+              "actions": {
+                "AbuseIPDB_Check": {
+                  "type": "Http",
+                  "inputs": {
+                    "method": "GET",
+                    "uri": "https://api.abuseipdb.com/api/v2/check?ipAddress=@{items('For_each_IP')?['Address']}&maxAgeInDays=90&verbose",
+                    "headers": {
+                      "Key": "@parameters('AbuseIPDBApiKey')",
+                      "Accept": "application/json"
+                    }
+                  }
+                },
+                "VirusTotal_Check": {
+                  "type": "Http",
+                  "inputs": {
+                    "method": "GET",
+                    "uri": "https://www.virustotal.com/api/v3/ip_addresses/@{items('For_each_IP')?['Address']}",
+                    "headers": { "x-apikey": "@parameters('VirusTotalApiKey')" }
+                  }
+                },
+                "Evaluate_Scores": {
+                  "type": "If",
+                  "runAfter": {
+                    "AbuseIPDB_Check": ["Succeeded", "Failed"],
+                    "VirusTotal_Check": ["Succeeded", "Failed"]
+                  },
+                  "expression": {
+                    "or": [
+                      {
+                        "greaterOrEquals": [
+                          "@coalesce(body('AbuseIPDB_Check')?['data']?['abuseConfidenceScore'], 0)",
+                          "@parameters('AbuseIPDBThreshold')"
+                        ]
+                      },
+                      {
+                        "greaterOrEquals": [
+                          "@coalesce(body('VirusTotal_Check')?['data']?['attributes']?['last_analysis_stats']?['malicious'], 0)",
+                          "@parameters('VirusTotalThreshold')"
+                        ]
+                      }
+                    ]
+                  },
+                  "actions": {
+                    "Set_MaliciousFound": {
+                      "type": "SetVariable",
+                      "inputs": { "name": "MaliciousFound", "value": true }
+                    },
+                    "Append_malicious_line": {
+                      "type": "AppendToArrayVariable",
+                      "runAfter": { "Set_MaliciousFound": ["Succeeded"] },
+                      "inputs": {
+                        "name": "EnrichmentLines",
+                        "value": "| `@{items('For_each_IP')?['Address']}` | **MALICIOUS** | @{coalesce(body('AbuseIPDB_Check')?['data']?['abuseConfidenceScore'], 'N/A')}% | @{coalesce(body('VirusTotal_Check')?['data']?['attributes']?['last_analysis_stats']?['malicious'], 'N/A')} / @{coalesce(body('VirusTotal_Check')?['data']?['attributes']?['last_analysis_stats']?['total'], 'N/A')} | @{coalesce(body('AbuseIPDB_Check')?['data']?['countryCode'], '')} | @{coalesce(body('AbuseIPDB_Check')?['data']?['isp'], '')} |"
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {
+                      "Append_benign_line": {
+                        "type": "AppendToArrayVariable",
+                        "inputs": {
+                          "name": "EnrichmentLines",
+                          "value": "| `@{items('For_each_IP')?['Address']}` | Clean | @{coalesce(body('AbuseIPDB_Check')?['data']?['abuseConfidenceScore'], 'N/A')}% | @{coalesce(body('VirusTotal_Check')?['data']?['attributes']?['last_analysis_stats']?['malicious'], 'N/A')} / @{coalesce(body('VirusTotal_Check')?['data']?['attributes']?['last_analysis_stats']?['total'], 'N/A')} | @{coalesce(body('AbuseIPDB_Check')?['data']?['countryCode'], '')} | @{coalesce(body('AbuseIPDB_Check')?['data']?['isp'], '')} |"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "Condition_raise_severity": {
+              "type": "If",
+              "runAfter": { "For_each_IP": ["Succeeded"] },
+              "expression": { "equals": ["@variables('MaliciousFound')", true] },
+              "actions": {
+                "Update_incident_severity_to_High": {
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "body": {
+                      "incidentArmId": "@triggerBody()?['object']?['id']",
+                      "severity": "High"
+                    },
+                    "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                    "method": "put",
+                    "path": "/Incidents"
+                  }
+                }
+              },
+              "else": { "actions": {} }
+            },
+            "Add_enrichment_comment": {
+              "type": "ApiConnection",
+              "runAfter": { "Condition_raise_severity": ["Succeeded"] },
+              "inputs": {
+                "body": {
+                  "incidentArmId": "@triggerBody()?['object']?['id']",
+                  "message": "## RetailShield Threat Intel Enrichment\n\n| IP Address | Verdict | AbuseIPDB Confidence | VT Detections | Country | ISP |\n|---|---|---|---|---|---|\n@{join(variables('EnrichmentLines'), '\n')}\n\n*Sources: AbuseIPDB (threshold: @{parameters('AbuseIPDBThreshold')}%), VirusTotal (threshold: @{parameters('VirusTotalThreshold')} engines) | Malicious IPs found: **@{variables('MaliciousFound')}** | Playbook: RetailShield-ThreatIntelEnrich*"
+                },
+                "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                "method": "post",
+                "path": "/Incidents/Comment"
+              }
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azuresentinel": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('SentinelConnectionName'))]",
+                "connectionName": "[variables('SentinelConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]",
+                "connectionProperties": { "authentication": { "type": "ManagedServiceIdentity" } }
+              }
+            }
+          },
+          "AbuseIPDBApiKey": { "value": "[parameters('AbuseIPDBApiKey')]" },
+          "VirusTotalApiKey": { "value": "[parameters('VirusTotalApiKey')]" },
+          "AbuseIPDBThreshold": { "value": "[parameters('AbuseIPDBThreshold')]" },
+          "VirusTotalThreshold": { "value": "[parameters('VirusTotalThreshold')]" }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "PlaybookResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Logic/workflows', parameters('PlaybookName'))]"
+    }
+  }
 }
