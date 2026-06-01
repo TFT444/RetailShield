@@ -1,238 +1,195 @@
-# RetailShield v1.0 — by Tanvir Farhad, ShieldTech Ltd
-
 # RetailShield
 
 [![CI](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml/badge.svg)](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Azure Sentinel](https://img.shields.io/badge/SIEM-Azure%20Sentinel-0078D4?logo=microsoftazure)](https://azure.microsoft.com/en-gb/products/microsoft-sentinel)
+[![Azure Sentinel](https://img.shields.io/badge/SIEM-Microsoft%20Sentinel-0078D4?logo=microsoftazure)](https://azure.microsoft.com/en-gb/products/microsoft-sentinel)
 [![MITRE ATT&CK](https://img.shields.io/badge/Framework-MITRE%20ATT%26CK-red)](https://attack.mitre.org/)
 [![Built With KQL](https://img.shields.io/badge/Language-KQL-orange)](https://learn.microsoft.com/en-us/azure/data-explorer/kusto/query/)
-[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Status](https://img.shields.io/badge/Status-In%20Development-yellow)]()
-[![Author](https://img.shields.io/badge/Author-Tamim%20%7C%20ShieldTech%20Ltd-informational)]()
+[![Author](https://img.shields.io/badge/Author-Tanvir%20Farhad%20%7C%20ShieldTech%20Ltd-informational)]()
 
-> **Retail-focused threat detection, automated incident response, and live SOC dashboard — built on Microsoft Sentinel.**
+> **A retail threat detection and incident response content pack for Microsoft Sentinel.**
+
+RetailShield provides KQL analytics rules, Azure Logic App playbooks, and a Sentinel workbook — all purpose-built for the retail threat landscape and deployable directly on top of a Microsoft Sentinel workspace.
 
 ---
 
 ## Table of Contents
 
-1. [Problem Statement](#problem-statement)
-2. [Architecture](#architecture)
-3. [MITRE ATT&CK Mapping](#mitre-attck-mapping)
-4. [Features](#features)
-5. [Folder Structure](#folder-structure)
-6. [Quick Start](#quick-start)
+1. [What this is / What this is not](#what-this-is--what-this-is-not)
+2. [Why retail needs its own rules](#why-retail-needs-its-own-rules)
+3. [Architecture](#architecture)
+4. [Content overview](#content-overview)
+5. [Folder structure](#folder-structure)
+6. [Quick start](#quick-start)
 7. [Contributing](#contributing)
 8. [Author](#author)
 9. [License](#license)
 
 ---
 
-## Problem Statement
+## What this is / What this is not
+
+| | |
+|---|---|
+| **This IS** | A content pack for Microsoft Sentinel — KQL detection rules, Logic App playbooks, and a workbook that you deploy into your existing Sentinel workspace |
+| **This IS** | Opinionated detection logic tuned to retail-specific TTPs: POS RAM scraping, gift card fraud, supply chain compromise, AI voice fraud, MFA fatigue |
+| **This IS** | Mapped to MITRE ATT&CK and linked to automated response playbooks so alerts trigger containment actions |
+| **This IS NOT** | A standalone SIEM, SOC platform, or replacement for Microsoft Sentinel |
+| **This IS NOT** | A generic threat detection library — rules are explicitly tuned for retail environments |
+| **This IS NOT** | A managed service — you own the deployment and tuning in your own Azure tenant |
+
+Microsoft Sentinel is the SIEM/SOAR platform. RetailShield is the retail-specific content that runs on top of it.
+
+---
+
+## Why retail needs its own rules
 
 Retail is the most breach-targeted industry in the UK and globally. The consequences are no longer just reputational — they are existential.
 
 | Incident | Organisation | Impact |
 |---|---|---|
 | Supply-chain ransomware (2025) | Marks & Spencer | **£300 M** operating-profit loss; online sales suspended for weeks |
-| Data exfiltration (2018) | Nike (via third-party) | **1.4 TB** of customer & IP data exposed |
+| Coordinated social engineering (2025) | Co-op | Customer data exfiltrated; stores disrupted |
+| Data exfiltration via third-party (2018) | Nike | **1.4 TB** of customer & IP data exposed |
 | Point-of-Sale malware | Multiple UK retailers | Millions of payment cards compromised |
-| Insider threat & fraud | Retail sector average | £1,000+ loss per employee per year (CIFAS 2024) |
+| Insider fraud | Retail sector average | £1,000+ loss per employee per year (CIFAS 2024) |
 
-Retailers face a unique attack surface: fragmented POS networks, seasonal workforce spikes, large third-party supplier ecosystems, and high-volume transaction data that masks malicious activity. Generic SIEM rules produce alert fatigue without retail-specific context.
+Retailers face a unique attack surface: fragmented POS networks, seasonal workforce spikes, large third-party supplier ecosystems, and high-volume transaction data that masks malicious activity. Generic Sentinel rules produce alert fatigue without retail-specific context.
 
-**RetailShield** closes that gap — purpose-built detection logic tuned to retail TTPs, three Azure Logic App playbooks for automated triage, enrichment, and containment (Azure configuration required), and a dashboard that gives SOC analysts immediate situational awareness without drowning them in noise.
+RetailShield closes that gap.
 
 ---
 
 ## Architecture
 
+RetailShield is content that sits on top of Microsoft Sentinel. The platform does the heavy lifting (log ingestion, correlation, incident management). RetailShield contributes the retail-aware detection logic and automated response.
+
 ```
-                        ┌───────────────────────────────────────────────┐
-                        │              RETAIL DATA SOURCES                │
-                        │  POS Systems │ ERP/SAP │ IAM │ Cloud Apps │ EDR │
-                        └───────────────────────┬───────────────────────┘
-                                                │  Log Ingestion
-                                                ↓
-                        ┌───────────────────────────────────────────────┐
-                        │           MICROSOFT SENTINEL (SIEM)             │
-                        │                                                 │
-                        │  ┌─────────────────┐   ┌─────────────────────┐ │
-                        │  │  Data Connectors│   │   Analytics Rules   │ │
-                        │  │  (CEF / Syslog  │──▶│   (KQL — Retail     │ │
-                        │  │   / REST API)   │   │    TTPs mapped to   │ │
-                        │  └─────────────────┘   │    MITRE ATT&CK)    │ │
-                        │                        └──────────┬──────────┘ │
-                        │                                   │ Alert      │
-                        │                        ┌──────────▼──────────┐ │
-                        │                        │    Incident Engine  │ │
-                        │                        │  (Fusion + ML UEBA) │ │
-                        │                        └──────────┬──────────┘ │
-                        └───────────────────────────────────────────┬──────────┘
-                                                            │ Trigger
-                        ┌───────────────────────────────────────▼──────────┐
-                        │           AZURE LOGIC APPS (SOAR)              │
-                        │                                                 │
-                        │  ┌──────────────┐  ┌──────────┐  ┌──────────┐ │
-                        │  │  Triage &    │  │  Enrich  │  │Containment│ │
-                        │  │  Classify    │─▶│ (Threat  │─▶│(Block IP /│ │
-                        │  │  Playbook    │  │  Intel)  │  │Disable AD)│ │
-                        │  └──────────────┘  └──────────┘  └──────────┘ │
-                        │                                                 │
-                        │  ┌──────────────┐  ┌────────────────────────┐│
-                        │  │  Notify SOC  │  │  Create Ticket (JIRA /   ││
-                        │  │  (Teams/PD)  │  │  ServiceNow)             ││
-                        │  └──────────────┘  └────────────────────────┘│
-                        └───────────────────────────────────────────┬──────────┘
-                                                            │ Status / Metrics
-                        ┌───────────────────────────────────────▼──────────┐
-                        │         RETAILSHIELD DASHBOARD (React)         │
-                        │                                                 │
-                        │   Live Incident Feed │ TTP Heatmap │ KPIs      │
-                        │   Analyst Workbench  │ Alert Drill-Down        │
-                        └─────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                      RETAIL DATA SOURCES                           │
+│   POS Systems  │  ERP / SAP  │  Azure AD  │  Cloud Apps  │  EDR   │
+└───────────────────────────────┬────────────────────────────────────┘
+                                │  Log ingestion via Data Connectors
+                                ↓
+┌────────────────────────────────────────────────────────────────────┐
+│                   MICROSOFT SENTINEL (platform)                    │
+│                                                                    │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │              RETAILSHIELD CONTENT PACK                      │  │
+│  │                                                             │  │
+│  │  ┌───────────────────┐   ┌──────────────────────────────┐  │  │
+│  │  │  KQL Analytics    │   │  Azure Logic App Playbooks   │  │  │
+│  │  │  Rules            │──▶│                              │  │  │
+│  │  │  (detection-rules/│   │  triage-classify             │  │  │
+│  │  │   retail/ +       │   │  threat-intel-enrich         │  │  │
+│  │  │   generic/)       │   │  containment                 │  │  │
+│  │  └───────────────────┘   └──────────────────────────────┘  │  │
+│  │                                                             │  │
+│  │  ┌───────────────────┐   ┌──────────────────────────────┐  │  │
+│  │  │  Sentinel         │   │  Watchlists                  │  │  │
+│  │  │  Workbook         │   │  (IOCs, Suppliers,           │  │  │
+│  │  │  (dashboard)      │   │   Service Accounts)          │  │  │
+│  │  └───────────────────┘   └──────────────────────────────┘  │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+│           Sentinel Incident Engine  │  Fusion  │  UEBA             │
+└────────────────────────────────────────────────────────────────────┘
 ```
+
+All four content types (rules, playbooks, workbook, watchlists) are deployed into the same Sentinel workspace. They interoperate natively — a KQL rule fires an alert, Sentinel creates an incident, and the Logic App playbook is triggered automatically.
 
 ---
 
-## MITRE ATT&CK Mapping
+## Content overview
 
-The detection rules in this project map to the following MITRE ATT&CK (Enterprise) techniques, prioritised for the retail threat landscape.
-
-| Tactic | Technique ID | Technique Name | Detection Rule | Playbook |
-|---|---|---|---|---|
-| Initial Access | T1566.001 | Spearphishing Attachment | `phishing-email-attachment.kql` | `phishing-triage.json` |
-| Initial Access | T1190 | Exploit Public-Facing Application | `web-exploit-attempt.kql` | `web-block-ip.json` |
-| Execution | T1059.001 | PowerShell | `suspicious-powershell.kql` | `isolate-endpoint.json` |
-| Persistence | T1078 | Valid Accounts (Credential Abuse) | `brute-force-login.kql` | `disable-account.json` |
-| Persistence | T1136 | Create Account | `new-admin-account.kql` | `notify-soc.json` |
-| Privilege Escalation | T1068 | Exploitation for Privilege Escalation | `priv-esc-attempt.kql` | `isolate-endpoint.json` |
-| Defence Evasion | T1562.001 | Disable or Modify Tools | `av-disabled.kql` | `notify-soc.json` |
-| Credential Access | T1110 | Brute Force | `brute-force-login.kql` | `disable-account.json` |
-| Discovery | T1046 | Network Service Scanning | `internal-port-scan.kql` | `notify-soc.json` |
-| Lateral Movement | T1021.001 | Remote Desktop Protocol | `rdp-lateral-movement.kql` | `isolate-endpoint.json` |
-| Collection | T1005 | Data from Local System | `bulk-file-access.kql` | `data-exfil-contain.json` |
-| Exfiltration | T1041 | Exfiltration Over C2 Channel | `c2-beacon.kql` | `block-c2-ip.json` |
-| Exfiltration | T1048 | Exfiltration Over Alternative Protocol | `dns-exfil.kql` | `data-exfil-contain.json` |
-| Impact | T1486 | Data Encrypted for Impact (Ransomware) | `ransomware-indicator.kql` | `ransomware-response.json` |
-| Impact | T1485 | Data Destruction | `mass-delete-activity.kql` | `isolate-endpoint.json` |
-
----
-
-## Features
-
-| Feature | Description | Status |
+| Content type | Count | Description |
 |---|---|---|
-| **Retail-Tuned KQL Rules** | 6 Sentinel scheduled analytics rules (YAML) targeting Scattered Spider / UNC3944 TTPs + KQL rules in `detection-rules/` | Available |
-| **Automated Triage Playbooks** | Logic App workflow that classifies incidents by title pattern and tags with retail category | Available (requires configuration) |
-| **Containment Automation** | Auto-triggered: block IPs in NSG, disable AAD accounts, isolate hosts via Defender for Endpoint | Available (requires configuration) |
-| **Threat Intel Enrichment** | Auto-lookup of IP entities against AbuseIPDB and VirusTotal; raises severity on positive hits | Available (requires configuration) |
-| **SOAR Notification Layer** | Immediate alerts to Microsoft Teams channel and PagerDuty with full incident context | Planned |
-| **Live SOC Dashboard** | React + TypeScript frontend consuming Sentinel APIs; incident feed, TTP heatmap, analyst KPIs | In Development |
-| **JIRA / ServiceNow Integration** | Auto-create tickets with priority, assignee, and evidence attached | Planned |
-| **Unit & Integration Tests** | KQL rule validation, playbook schema checks, and frontend component tests | Planned |
-| **CI/CD Pipeline** | GitHub Actions: lint, test, and deploy Sentinel artefacts on merge to main | Available |
-| **Comprehensive Docs** | Architecture decision records, runbooks, and onboarding guides | In Development |
+| **KQL Analytics Rules** | 13 retail + 6 generic | Scheduled analytics rules covering POS fraud, ransomware, exfiltration, identity abuse, supply chain, voice fraud |
+| **Logic App Playbooks** | 3 | Triage & classify, threat-intel enrichment (AbuseIPDB / VirusTotal), containment (block IP / disable account / isolate host) |
+| **Sentinel Workbook** | 1 | Live incident feed, TTP heatmap, analyst KPIs |
+| **Watchlists** | 5 | RetailIOCWatchlist, RetailApprovedSenders, AbuseIPDBWatchlist, RetailSupplierAccounts, RetailServiceAccounts |
+| **Hunting Queries** | Planned | Proactive threat hunting queries for retail TTPs |
 
 ---
 
-## Folder Structure
+## Folder structure
 
 ```
 RetailShield/
 ├── .github/
 │   └── workflows/
-│       └── ci.yml                  # GitHub Actions CI pipeline (lint, test, deploy)
+│       └── ci.yml                          # GitHub Actions CI pipeline
 │
 ├── detection-rules/
-│   ├── brute-force-login.kql       # T1110 — Brute Force credential attacks
-│   ├── ransomware-indicator.kql    # T1486 — Ransomware staging indicators
-│   ├── bulk-file-access.kql        # T1005 — Unusual bulk data access
-│   ├── c2-beacon.kql               # T1041 — C2 beaconing over HTTP/S
-│   ├── dns-exfil.kql               # T1048 — DNS-based data exfiltration
-│   ├── suspicious-powershell.kql   # T1059.001 — Obfuscated PowerShell
-│   ├── rdp-lateral-movement.kql    # T1021.001 — RDP lateral movement
-│   └── README.md
+│   ├── retail/                             # Retail-specific KQL analytics rules
+│   │   ├── phishing_detection.kql          # RS-PHI-001 — T1566.001 — High
+│   │   ├── pos_anomaly.kql                 # RS-POS-001 — T1056.001 — High
+│   │   ├── pos_void_refund.kql             # RS-POS-002 — T1056.001 — High
+│   │   ├── gift_card_fraud.kql             # RS-GCF-001 — T1657    — High
+│   │   ├── ai_voice_fraud.kql              # RS-VOI-001 — T1598    — High
+│   │   ├── mfa_fatigue.kql                 # RS-MFA-001 — T1621    — High
+│   │   ├── credential_stuffing.kql         # RS-CRD-001 — T1110.004 — High
+│   │   ├── after_hours_access.kql          # RS-AHA-001 — T1078    — Medium
+│   │   ├── data_exfiltration.kql           # RS-EXF-001 — T1048    — Critical
+│   │   ├── ransomware_indicator.kql        # RS-RAN-001 — T1486    — Critical
+│   │   ├── supply_chain_anomaly.kql        # RS-SUP-001 — T1195    — High
+│   │   ├── supplier_impossible_travel.kql  # RS-SUP-002 — T1199    — Medium
+│   │   └── privileged_role_addition.kql    # RS-PRA-001 — T1098    — High
+│   ├── generic/                            # General-purpose SOC rules
+│   │   ├── brute-force-login.kql           # GEN-001 — T1110
+│   │   ├── bulk-file-access.kql            # GEN-002 — T1005
+│   │   ├── c2-beacon.kql                   # GEN-003 — T1041
+│   │   ├── dns-exfil.kql                   # GEN-004 — T1048
+│   │   ├── rdp-lateral-movement.kql        # GEN-005 — T1021.001
+│   │   └── suspicious-powershell.kql       # GEN-006 — T1059.001
+│   └── README.md                           # Rule index with MITRE mapping
 │
 ├── logic-apps/
 │   ├── triage-classify/
-│   │   └── workflow.json           # Auto-triage and severity classification
+│   │   └── workflow.json                   # Auto-triage and severity classification
 │   ├── threat-intel-enrich/
-│   │   └── workflow.json           # IOC enrichment (AbuseIPDB, VirusTotal)
+│   │   └── workflow.json                   # IOC enrichment (AbuseIPDB, VirusTotal)
 │   ├── containment/
-│   │   ├── workflow.json           # Block IP / Disable AD / Isolate host
+│   │   ├── workflow.json                   # Block IP / Disable account / Isolate host
 │   │   └── README.md
-│   ├── DEPLOYMENT.md               # Step-by-step deployment guide
-│   └── README.md
-│
-├── playbooks/
-│   ├── phishing-triage.md          # Analyst runbook — phishing incidents
-│   ├── ransomware-response.md      # Analyst runbook — ransomware response
-│   ├── data-exfil-contain.md       # Analyst runbook — data exfiltration
-│   ├── insider-threat.md           # Analyst runbook — insider threat
-│   └── README.md
-│
-├── frontend/
-│   ├── public/
-│   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   ├── hooks/
-│   │   └── api/
-│   ├── package.json
-│   └── README.md
+│   └── DEPLOYMENT.md                       # Step-by-step Logic App deployment guide
 │
 ├── sentinel/
-│   ├── detections/                  # Sentinel scheduled analytics rules (YAML)
-│   │   ├── RS-SSE-001-helpdesk-mfa-manipulation.yaml
-│   │   ├── RS-SSE-002-mfa-fatigue-push-bombing.yaml
-│   │   ├── RS-SSE-003-privileged-role-addition.yaml
-│   │   ├── RS-SSE-004-supplier-impossible-travel.yaml
-│   │   ├── RS-POS-002-offhours-void-refund.yaml
-│   │   ├── RS-FRD-001-giftcard-refund-fraud.yaml
-│   │   └── README.md
-│   ├── hunting/
-│   │   └── README.md
 │   ├── workbooks/
-│   │   └── retailshield-workbook.json   # Sentinel Workbook ARM template
-│   ├── data-connectors/
-│   │   └── connectors.json
+│   │   └── retailshield-workbook.json      # Sentinel Workbook ARM template
 │   ├── watchlists/
-│   │   └── retail-ioc-watchlist.csv
+│   │   └── retail-ioc-watchlist.csv        # Sample IOC watchlist
 │   └── README.md
 │
 ├── docs/
-│   ├── architecture.md             # Full architecture decision record
-│   ├── threat-model.md             # Retail threat model and assumptions
-│   ├── onboarding.md               # New analyst / developer onboarding
-│   ├── mitre-mapping.md            # Full MITRE ATT&CK coverage matrix
-│   └── README.md
+│   ├── architecture.md
+│   ├── threat-model.md
+│   └── onboarding.md
+│
+├── scripts/
+│   └── deploy_rules.py                     # Deploy KQL rules to Sentinel workspace
 │
 ├── tests/
 │   ├── detection-rules/
-│   │   └── test_kql_rules.py       # KQL rule syntax and logic validation
-│   ├── playbooks/
-│   │   └── test_playbook_schema.py # Logic App JSON schema tests
-│   ├── frontend/
-│   │   └── dashboard.test.tsx      # React component unit tests
-│   └── README.md
+│   │   └── test_kql_rules.py
+│   └── playbooks/
+│       └── test_playbook_schema.py
 │
-└── README.md                       # This file
+├── CONTENT_PACK.md                         # How RetailShield maps to a Sentinel Solution
+└── README.md                               # This file
 ```
 
 ---
 
-## Quick Start
+## Quick start
 
 ### Prerequisites
 
 | Requirement | Version |
 |---|---|
-| Azure Subscription | Active, with Sentinel workspace |
+| Azure Subscription | Active, with Microsoft Sentinel workspace |
 | Python | 3.11+ |
-| Node.js | 18+ |
 | Azure CLI | Latest |
 | Git | 2.40+ |
 
@@ -244,50 +201,34 @@ cd retailshield
 git checkout dev
 ```
 
-### 2. Deploy detection rules to Sentinel
+### 2. Deploy KQL analytics rules to Sentinel
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Authenticate with Azure
 az login
 az account set --subscription "<YOUR_SUBSCRIPTION_ID>"
 
-# Deploy all KQL analytics rules
 python scripts/deploy_rules.py \
   --workspace-name "<SENTINEL_WORKSPACE>" \
   --resource-group "<RESOURCE_GROUP>"
 ```
+
+Or create Scheduled Analytics Rules manually in the Sentinel Analytics blade and paste in each `.kql` file.
 
 ### 3. Deploy Logic App playbooks
 
 See [logic-apps/DEPLOYMENT.md](logic-apps/DEPLOYMENT.md) for the full step-by-step guide.
 
 ```bash
-# Quick deploy — triage playbook (no API keys required)
 az deployment group create \
   --resource-group "<RESOURCE_GROUP>" \
   --template-file logic-apps/triage-classify/workflow.json
 ```
 
-### 4. Run the SOC dashboard locally
+### 4. Run tests
 
 ```bash
-cd frontend
-npm install
-npm run dev
-# Dashboard available at http://localhost:5173
-```
-
-### 5. Run tests
-
-```bash
-# Python tests (KQL validation + playbook schema)
 pytest tests/ -v
-
-# Frontend tests
-cd frontend && npm test
 ```
 
 ---
@@ -298,20 +239,18 @@ Contributions are welcome. Please open an issue first to discuss proposed change
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Commit with clear messages following the project convention
+3. Commit with clear messages
 4. Push and open a pull request against `dev`
 
 ---
 
 ## Author
 
-**Tamim**
-Security Engineer — [ShieldTech Ltd](https://shieldtech.co.uk), London
-
-> *"Security is not a product, but a process."* — Bruce Schneier
+**Tanvir Farhad**  
+Security Engineer — ShieldTech Ltd, London
 
 ---
 
 ## License
 
-[MIT](LICENSE) © 2025 Tamim — ShieldTech Ltd
+[MIT](LICENSE) © 2025 Tanvir Farhad — ShieldTech Ltd
