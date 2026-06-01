@@ -1,5 +1,342 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
-  "comment": "Placeholder — containment Logic App workflow (block IP, disable account, isolate host) to be implemented"
+  "parameters": {
+    "PlaybookName": {
+      "type": "string",
+      "defaultValue": "RetailShield-Containment",
+      "metadata": { "description": "Name of the Logic App playbook resource." }
+    },
+    "TenantId": {
+      "type": "string",
+      "metadata": { "description": "Azure AD tenant ID — used for Defender for Endpoint OAuth2 token requests." }
+    },
+    "SubscriptionId": {
+      "type": "string",
+      "defaultValue": "[subscription().subscriptionId]",
+      "metadata": { "description": "Subscription containing the target NSG." }
+    },
+    "NSGResourceGroup": {
+      "type": "string",
+      "metadata": { "description": "Resource group of the perimeter NSG to inject block rules into." }
+    },
+    "NSGName": {
+      "type": "string",
+      "metadata": { "description": "NSG name to inject a Deny-Inbound block rule into." }
+    },
+    "DefenderClientId": {
+      "type": "string",
+      "metadata": { "description": "App registration client ID with Machine.Isolate on the MDE API." }
+    },
+    "DefenderClientSecret": {
+      "type": "securestring",
+      "metadata": { "description": "Client secret for the Defender app registration. Use Key Vault reference in production." }
+    }
+  },
+  "variables": {
+    "SentinelConnectionName": "[concat('azuresentinel-', parameters('PlaybookName'))]",
+    "AzureADConnectionName": "[concat('azuread-', parameters('PlaybookName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('SentinelConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('SentinelConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+        },
+        "parameterValueType": "Alternative"
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('AzureADConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('AzureADConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuread')]"
+        },
+        "parameterValueType": "Alternative"
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('PlaybookName')]",
+      "location": "[resourceGroup().location]",
+      "identity": { "type": "SystemAssigned" },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', variables('SentinelConnectionName'))]",
+        "[resourceId('Microsoft.Web/connections', variables('AzureADConnectionName'))]"
+      ],
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": { "type": "Object" },
+            "SubscriptionId": { "type": "String" },
+            "NSGResourceGroup": { "type": "String" },
+            "NSGName": { "type": "String" },
+            "TenantId": { "type": "String" },
+            "DefenderClientId": { "type": "String" },
+            "DefenderClientSecret": { "type": "SecureString" }
+          },
+          "triggers": {
+            "Microsoft_Sentinel_incident": {
+              "type": "ApiConnectionWebhook",
+              "inputs": {
+                "body": { "callback_url": "@{listCallbackUrl()}" },
+                "host": {
+                  "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" }
+                },
+                "path": "/subscribe"
+              }
+            }
+          },
+          "actions": {
+            "Initialize_Summary": {
+              "type": "InitializeVariable",
+              "runAfter": {},
+              "inputs": { "variables": [{ "name": "Summary", "type": "string", "value": "" }] }
+            },
+            "Initialize_BlockedIPs": {
+              "type": "InitializeVariable",
+              "runAfter": {},
+              "inputs": { "variables": [{ "name": "BlockedIPs", "type": "array", "value": [] }] }
+            },
+            "Initialize_DisabledAccounts": {
+              "type": "InitializeVariable",
+              "runAfter": {},
+              "inputs": { "variables": [{ "name": "DisabledAccounts", "type": "array", "value": [] }] }
+            },
+            "Entities_Get_IPs": {
+              "type": "ApiConnection",
+              "runAfter": {
+                "Initialize_Summary": ["Succeeded"],
+                "Initialize_BlockedIPs": ["Succeeded"],
+                "Initialize_DisabledAccounts": ["Succeeded"]
+              },
+              "inputs": {
+                "body": "@triggerBody()?['object']?['properties']?['relatedEntities']",
+                "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                "method": "post",
+                "path": "/Entities/Ip"
+              }
+            },
+            "Entities_Get_Accounts": {
+              "type": "ApiConnection",
+              "runAfter": {
+                "Initialize_Summary": ["Succeeded"],
+                "Initialize_BlockedIPs": ["Succeeded"],
+                "Initialize_DisabledAccounts": ["Succeeded"]
+              },
+              "inputs": {
+                "body": "@triggerBody()?['object']?['properties']?['relatedEntities']",
+                "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                "method": "post",
+                "path": "/Entities/Account"
+              }
+            },
+            "Entities_Get_Hosts": {
+              "type": "ApiConnection",
+              "runAfter": {
+                "Initialize_Summary": ["Succeeded"],
+                "Initialize_BlockedIPs": ["Succeeded"],
+                "Initialize_DisabledAccounts": ["Succeeded"]
+              },
+              "inputs": {
+                "body": "@triggerBody()?['object']?['properties']?['relatedEntities']",
+                "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                "method": "post",
+                "path": "/Entities/Host"
+              }
+            },
+            "Select_IP_Addresses": {
+              "type": "Select",
+              "runAfter": { "Entities_Get_IPs": ["Succeeded"] },
+              "inputs": {
+                "from": "@body('Entities_Get_IPs')?['IPs']",
+                "select": "@item()?['Address']"
+              }
+            },
+            "Condition_has_IPs": {
+              "type": "If",
+              "runAfter": { "Select_IP_Addresses": ["Succeeded"] },
+              "expression": {
+                "greater": ["@length(body('Select_IP_Addresses'))", 0]
+              },
+              "actions": {
+                "Block_all_IPs_in_NSG": {
+                  "type": "Http",
+                  "inputs": {
+                    "method": "PUT",
+                    "uri": "https://management.azure.com/subscriptions/@{parameters('SubscriptionId')}/resourceGroups/@{parameters('NSGResourceGroup')}/providers/Microsoft.Network/networkSecurityGroups/@{parameters('NSGName')}/securityRules/RetailShield-Block-Inbound?api-version=2023-09-01",
+                    "body": {
+                      "properties": {
+                        "priority": 4000,
+                        "protocol": "*",
+                        "sourcePortRange": "*",
+                        "destinationPortRange": "*",
+                        "sourceAddressPrefixes": "@body('Select_IP_Addresses')",
+                        "destinationAddressPrefix": "*",
+                        "access": "Deny",
+                        "direction": "Inbound",
+                        "description": "RetailShield auto-block — incident @{triggerBody()?['object']?['properties']?['incidentNumber']}"
+                      }
+                    },
+                    "authentication": {
+                      "type": "ManagedServiceIdentity",
+                      "audience": "https://management.azure.com/"
+                    }
+                  }
+                },
+                "Set_BlockedIPs": {
+                  "type": "SetVariable",
+                  "runAfter": { "Block_all_IPs_in_NSG": ["Succeeded"] },
+                  "inputs": { "name": "BlockedIPs", "value": "@body('Select_IP_Addresses')" }
+                }
+              },
+              "else": { "actions": {} }
+            },
+            "For_each_Account": {
+              "type": "Foreach",
+              "runAfter": { "Entities_Get_Accounts": ["Succeeded"] },
+              "foreach": "@body('Entities_Get_Accounts')?['Accounts']",
+              "actions": {
+                "Disable_AAD_Account": {
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "host": { "connection": { "name": "@parameters('$connections')['azuread']['connectionId']" } },
+                    "method": "patch",
+                    "path": "/v1.0/users/@{items('For_each_Account')?['AadUserId']}",
+                    "body": { "accountEnabled": false }
+                  }
+                },
+                "Append_disabled_account": {
+                  "type": "AppendToArrayVariable",
+                  "runAfter": { "Disable_AAD_Account": ["Succeeded"] },
+                  "inputs": {
+                    "name": "DisabledAccounts",
+                    "value": "@items('For_each_Account')?['Name']"
+                  }
+                }
+              }
+            },
+            "Get_Defender_Token": {
+              "type": "Http",
+              "runAfter": { "Entities_Get_Hosts": ["Succeeded"] },
+              "inputs": {
+                "method": "POST",
+                "uri": "https://login.microsoftonline.com/@{parameters('TenantId')}/oauth2/token",
+                "headers": { "Content-Type": "application/x-www-form-urlencoded" },
+                "body": "grant_type=client_credentials&client_id=@{parameters('DefenderClientId')}&client_secret=@{parameters('DefenderClientSecret')}&resource=https%3A%2F%2Fapi.securitycenter.microsoft.com"
+              }
+            },
+            "For_each_Host": {
+              "type": "Foreach",
+              "runAfter": { "Get_Defender_Token": ["Succeeded"] },
+              "foreach": "@body('Entities_Get_Hosts')?['Hosts']",
+              "actions": {
+                "Find_Machine_in_Defender": {
+                  "type": "Http",
+                  "inputs": {
+                    "method": "GET",
+                    "uri": "https://api.securitycenter.microsoft.com/api/machines?$filter=computerDnsName eq '@{items('For_each_Host')?['HostName']}'",
+                    "headers": {
+                      "Authorization": "Bearer @{body('Get_Defender_Token')?['access_token']}"
+                    }
+                  }
+                },
+                "Isolate_Machine": {
+                  "type": "Http",
+                  "runAfter": { "Find_Machine_in_Defender": ["Succeeded"] },
+                  "inputs": {
+                    "method": "POST",
+                    "uri": "https://api.securitycenter.microsoft.com/api/machines/@{body('Find_Machine_in_Defender')?['value']?[0]?['id']}/isolate",
+                    "headers": {
+                      "Authorization": "Bearer @{body('Get_Defender_Token')?['access_token']}",
+                      "Content-Type": "application/json"
+                    },
+                    "body": {
+                      "Comment": "RetailShield auto-isolation — incident @{triggerBody()?['object']?['properties']?['incidentNumber']}",
+                      "IsolationType": "Full"
+                    }
+                  }
+                }
+              }
+            },
+            "Set_Summary": {
+              "type": "SetVariable",
+              "runAfter": {
+                "Condition_has_IPs": ["Succeeded", "Failed", "Skipped"],
+                "For_each_Account": ["Succeeded", "Failed", "Skipped"],
+                "For_each_Host": ["Succeeded", "Failed", "Skipped"]
+              },
+              "inputs": {
+                "name": "Summary",
+                "value": "## RetailShield Containment Actions\n\n**IPs blocked in NSG (RetailShield-Block-Inbound):** @{if(empty(variables('BlockedIPs')), '(none)', join(variables('BlockedIPs'), ', '))}\n\n**Accounts disabled in AAD:** @{if(empty(variables('DisabledAccounts')), '(none)', join(variables('DisabledAccounts'), ', '))}\n\n**Hosts submitted for isolation:** @{length(body('Entities_Get_Hosts')?['Hosts'])} host(s)\n\n*Playbook: RetailShield-Containment | Incident: #@{triggerBody()?['object']?['properties']?['incidentNumber']}*"
+              }
+            },
+            "Add_comment_to_incident": {
+              "type": "ApiConnection",
+              "runAfter": { "Set_Summary": ["Succeeded"] },
+              "inputs": {
+                "body": {
+                  "incidentArmId": "@triggerBody()?['object']?['id']",
+                  "message": "@variables('Summary')"
+                },
+                "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                "method": "post",
+                "path": "/Incidents/Comment"
+              }
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azuresentinel": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('SentinelConnectionName'))]",
+                "connectionName": "[variables('SentinelConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]",
+                "connectionProperties": { "authentication": { "type": "ManagedServiceIdentity" } }
+              },
+              "azuread": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('AzureADConnectionName'))]",
+                "connectionName": "[variables('AzureADConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuread')]",
+                "connectionProperties": { "authentication": { "type": "ManagedServiceIdentity" } }
+              }
+            }
+          },
+          "SubscriptionId": { "value": "[parameters('SubscriptionId')]" },
+          "NSGResourceGroup": { "value": "[parameters('NSGResourceGroup')]" },
+          "NSGName": { "value": "[parameters('NSGName')]" },
+          "TenantId": { "value": "[parameters('TenantId')]" },
+          "DefenderClientId": { "value": "[parameters('DefenderClientId')]" },
+          "DefenderClientSecret": { "value": "[parameters('DefenderClientSecret')]" }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "PlaybookResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Logic/workflows', parameters('PlaybookName'))]"
+    },
+    "PlaybookPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Logic/workflows', parameters('PlaybookName')), '2019-05-01', 'Full').identity.principalId]"
+    }
+  }
 }
