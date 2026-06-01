@@ -1,0 +1,120 @@
+// ============================================================
+// RetailShield — MFA Fatigue / Push Bombing Detection Rule
+// MITRE ATT&CK : T1621 — Multi-Factor Authentication Request Generation
+// Tactic       : Credential Access
+// Severity     : High
+// Frequency    : Every 5 minutes | Lookback: 10 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : M&S / Co-op 2025 — Scattered Spider MFA fatigue technique
+// ============================================================
+
+let LookbackPeriod    = 10m;
+let MFAPromptThresh   = 10;   // MFA prompts within lookback before fatigue alert
+let FatigueSuccThresh = 5;    // failed MFA attempts before a success counts as fatigue-driven
+let MFAResultCodes    = dynamic(["50074", "50076", "50079"]); // MFA required / prompt codes
+
+// ── Step 1: High-velocity MFA prompt flood to a single account ───────────────
+let MFAPromptFlood =
+    SigninLogs
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where ResultType in (MFAResultCodes)
+    | where isnotempty(UserPrincipalName)
+    | summarize
+        PromptCount   = count(),
+        SourceIPs     = dcount(IPAddress),
+        SourceIPList  = make_set(IPAddress, 10),
+        Locations     = make_set(Location, 5),
+        AppNames      = make_set(AppDisplayName, 5),
+        FirstPrompt   = min(TimeGenerated),
+        LastPrompt    = max(TimeGenerated)
+        by UserPrincipalName, bin(TimeGenerated, 5m)
+    | where PromptCount >= MFAPromptThresh
+    | extend ThreatSignal = "MFAPromptFlood";
+
+// ── Step 2: MFA success after fatigue spike — victim accepted under pressure ──
+let FatigueAcceptance =
+    MFAPromptFlood
+    | join kind=inner (
+        SigninLogs
+        | where ingestion_time() > ago(LookbackPeriod)
+        | where ResultType == "0"                     // successful sign-in
+        | where isnotempty(UserPrincipalName)
+        | project
+            UserPrincipalName,
+            SuccessTime    = TimeGenerated,
+            SuccessIP      = IPAddress,
+            SuccessCountry = Location,
+            SuccessApp     = AppDisplayName
+    ) on UserPrincipalName
+    | where SuccessTime > LastPrompt
+        and SuccessTime < LastPrompt + 15m           // accepted within 15 min of last prompt
+    | extend ThreatSignal = "FatigueAcceptance";
+
+// ── Step 3: Multi-IP prompt flood — distributed attack infrastructure ─────────
+let DistributedMFAFlood =
+    MFAPromptFlood
+    | where SourceIPs >= 3                           // prompts from ≥3 different IPs
+    | extend ThreatSignal = "DistributedMFAFlood";
+
+// ── Step 4: Risky sign-in following MFA prompt flood ─────────────────────────
+let RiskyPostMFA =
+    MFAPromptFlood
+    | join kind=inner (
+        SigninLogs
+        | where ingestion_time() > ago(LookbackPeriod)
+        | where ResultType == "0"
+        | where RiskLevelDuringSignIn in ("high", "medium")
+        | project
+            UserPrincipalName,
+            RiskyTime     = TimeGenerated,
+            RiskLevel     = RiskLevelDuringSignIn,
+            RiskyIP       = IPAddress,
+            RiskyLocation = Location
+    ) on UserPrincipalName
+    | where RiskyTime > LastPrompt
+    | extend ThreatSignal = "RiskySigninPostMFAFlood";
+
+// ── Step 5: Union all signals ─────────────────────────────────────────────────
+union
+    (MFAPromptFlood
+        | extend
+            SuccessIP = "", SuccessCountry = "", SuccessApp = "",
+            RiskLevel = "", RiskyIP = "", RiskyLocation = "",
+            SuccessTime = datetime(null)),
+    (FatigueAcceptance
+        | extend
+            RiskLevel = "", RiskyIP = "", RiskyLocation = ""),
+    (DistributedMFAFlood
+        | extend
+            SuccessIP = "", SuccessCountry = "", SuccessApp = "",
+            RiskLevel = "", RiskyIP = "", RiskyLocation = "",
+            SuccessTime = datetime(null)),
+    (RiskyPostMFA
+        | extend
+            SuccessIP = "", SuccessCountry = "", SuccessApp = "",
+            SuccessTime = datetime(null))
+| extend
+    AlertSeverity   = "High",
+    MitreTechnique  = "T1621",
+    MitreTactic     = "Credential Access",
+    PlaybookTrigger = "block_ip",
+    RiskScore       = 85
+| project
+    Timestamp        = coalesce(FirstPrompt, RiskyTime),
+    UserPrincipalName,
+    ThreatSignal,
+    PromptCount,
+    SourceIPs,
+    SourceIPList,
+    Locations,
+    AppNames,
+    SuccessIP,
+    SuccessCountry,
+    RiskLevel,
+    RiskyIP,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by Timestamp desc
