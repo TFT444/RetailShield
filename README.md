@@ -1,7 +1,7 @@
 # RetailShield
 
 [![CI](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml/badge.svg)](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)]()
 [![Azure Sentinel](https://img.shields.io/badge/SIEM-Microsoft%20Sentinel-0078D4?logo=microsoftazure)](https://azure.microsoft.com/en-gb/products/microsoft-sentinel)
 [![MITRE ATT&CK](https://img.shields.io/badge/Framework-MITRE%20ATT%26CK-red)](https://attack.mitre.org/)
 [![Built With KQL](https://img.shields.io/badge/Language-KQL-orange)](https://learn.microsoft.com/en-us/azure/data-explorer/kusto/query/)
@@ -194,6 +194,8 @@ RetailShield/
 │   │   └── retailshield-workbook.json      # Sentinel Workbook ARM template
 │   ├── watchlists/
 │   │   └── retail-ioc-watchlist.csv        # Sample IOC watchlist
+│   ├── data-connectors/
+│   │   └── connectors.json                 # Data connector definitions
 │   └── README.md
 │
 ├── docs/
@@ -202,7 +204,10 @@ RetailShield/
 │   └── onboarding.md
 │
 ├── scripts/
-│   └── deploy_rules.py                     # Deploy KQL rules to Sentinel workspace
+│   ├── validate_kql.py                     # KQL rule static validator (used by CI)
+│   ├── validate_logicapps.py               # Logic App JSON validator (used by CI)
+│   ├── retail_log_generator.py             # Sample retail log generator for testing
+│   └── cve_scanner.py                      # CVE scanner utility
 │
 ├── tests/
 │   ├── detection-rules/
@@ -211,6 +216,7 @@ RetailShield/
 │       └── test_playbook_schema.py
 │
 ├── CONTENT_PACK.md                         # How RetailShield maps to a Sentinel Solution
+├── requirements.txt                        # Python dependencies for CI and tests
 └── README.md                               # This file
 ```
 
@@ -223,9 +229,9 @@ RetailShield/
 | Requirement | Version |
 |---|---|
 | Azure Subscription | Active, with Microsoft Sentinel workspace |
-| Python | 3.11+ |
 | Azure CLI | Latest |
 | Git | 2.40+ |
+| Python 3.11+ | Only needed to run the local test suite |
 
 ### 1. Clone the repository
 
@@ -237,23 +243,28 @@ git checkout dev
 
 ### 2. Deploy KQL analytics rules to Sentinel
 
-```bash
-pip install -r requirements.txt
-az login
-az account set --subscription "<YOUR_SUBSCRIPTION_ID>"
+Rules are deployed manually through the Microsoft Sentinel Analytics blade. There is no automated deployment script at this time.
 
-python scripts/deploy_rules.py \
-  --workspace-name "<SENTINEL_WORKSPACE>" \
-  --resource-group "<RESOURCE_GROUP>"
-```
+For each `.kql` file in `detection-rules/retail/` (and optionally `detection-rules/generic/`):
 
-Or create Scheduled Analytics Rules manually in the Sentinel Analytics blade and paste in each `.kql` file.
+1. In the Azure Portal, open your Sentinel workspace → **Analytics** → **+ Create** → **Scheduled query rule**
+2. Set the rule name and description using the `// Rule ID` and `// Title` comments at the top of the file
+3. Paste the full contents of the `.kql` file into the **Set rule query** box
+4. Set **Run query every** and **Lookup data from the last** to match the `// Frequency` comment in the file
+5. Set severity from the `// Severity` comment
+6. Under **Automated response**, attach the relevant Logic App playbook (see the `// PlaybookTrigger` comment)
+7. Save and enable the rule
+
+Repeat for each rule you want to enable.
 
 ### 3. Deploy Logic App playbooks
 
 See [logic-apps/DEPLOYMENT.md](logic-apps/DEPLOYMENT.md) for the full step-by-step guide.
 
 ```bash
+az login
+az account set --subscription "<YOUR_SUBSCRIPTION_ID>"
+
 az deployment group create \
   --resource-group "<RESOURCE_GROUP>" \
   --template-file logic-apps/triage-classify/workflow.json
@@ -262,6 +273,7 @@ az deployment group create \
 ### 4. Run tests
 
 ```bash
+pip install -r requirements.txt
 pytest tests/ -v
 ```
 
@@ -287,4 +299,4 @@ Security Engineer — ShieldTech Ltd, London
 
 ## License
 
-[MIT](LICENSE) © 2025 Tanvir Farhad — ShieldTech Ltd
+MIT © 2025 Tanvir Farhad — ShieldTech Ltd
