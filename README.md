@@ -20,11 +20,12 @@ RetailShield provides KQL analytics rules, Azure Logic App playbooks, and a Sent
 2. [Why retail needs its own rules](#why-retail-needs-its-own-rules)
 3. [Architecture](#architecture)
 4. [Content overview](#content-overview)
-5. [Folder structure](#folder-structure)
-6. [Quick start](#quick-start)
-7. [Contributing](#contributing)
-8. [Author](#author)
-9. [License](#license)
+5. [MITRE ATT&CK coverage](#mitre-attck-coverage)
+6. [Folder structure](#folder-structure)
+7. [Quick start](#quick-start)
+8. [Contributing](#contributing)
+9. [Author](#author)
+10. [License](#license)
 
 ---
 
@@ -110,6 +111,39 @@ All four content types (rules, playbooks, workbook, watchlists) are deployed int
 | **Sentinel Workbook** | 1 | Live incident feed, TTP heatmap, analyst KPIs |
 | **Watchlists** | 5 | RetailIOCWatchlist, RetailApprovedSenders, AbuseIPDBWatchlist, RetailSupplierAccounts, RetailServiceAccounts |
 | **Hunting Queries** | Planned | Proactive threat hunting queries for retail TTPs |
+
+---
+
+## MITRE ATT&CK coverage
+
+### Retail rules
+
+| Tactic | Technique ID | Technique Name | Detection Rule | Playbook |
+|---|---|---|---|---|
+| Initial Access | T1566.001 | Spearphishing Attachment | `retail/phishing_detection.kql` | quarantine_email |
+| Collection | T1056.001 | Input Capture — Keylogging | `retail/pos_anomaly.kql` | suspend_terminal |
+| Collection | T1056.001 | Input Capture — Keylogging | `retail/pos_void_refund.kql` | notify_soc |
+| Impact | T1657 | Financial Theft | `retail/gift_card_fraud.kql` | notify_soc |
+| Reconnaissance | T1598 | Phishing for Information | `retail/ai_voice_fraud.kql` | notify_soc |
+| Credential Access | T1621 | MFA Request Generation | `retail/mfa_fatigue.kql` | block_ip |
+| Credential Access | T1110.004 | Credential Stuffing | `retail/credential_stuffing.kql` | block_ip |
+| Persistence | T1078 | Valid Accounts | `retail/after_hours_access.kql` | notify_soc |
+| Exfiltration | T1048 | Exfiltration Over Alternative Protocol | `retail/data_exfiltration.kql` | data_exfil_contain |
+| Impact | T1486 | Data Encrypted for Impact | `retail/ransomware_indicator.kql` | isolate_endpoint |
+| Initial Access | T1195 | Supply Chain Compromise | `retail/supply_chain_anomaly.kql` | notify_soc |
+| Initial Access | T1199 / T1078 | Trusted Relationship / Valid Accounts | `retail/supplier_impossible_travel.kql` | notify_soc |
+| Persistence | T1098 / T1078 | Account Manipulation / Valid Accounts | `retail/privileged_role_addition.kql` | notify_soc |
+
+### Generic rules
+
+| Tactic | Technique ID | Technique Name | Detection Rule | Playbook |
+|---|---|---|---|---|
+| Credential Access | T1110 | Brute Force | `generic/brute-force-login.kql` | — |
+| Collection | T1005 | Data from Local System | `generic/bulk-file-access.kql` | — |
+| Command and Control | T1041 | Exfiltration Over C2 Channel | `generic/c2-beacon.kql` | — |
+| Exfiltration | T1048 | Exfiltration Over Alternative Protocol | `generic/dns-exfil.kql` | — |
+| Lateral Movement | T1021.001 | Remote Desktop Protocol | `generic/rdp-lateral-movement.kql` | — |
+| Execution | T1059.001 | Command and Scripting Interpreter — PowerShell | `generic/suspicious-powershell.kql` | — |
 
 ---
 
