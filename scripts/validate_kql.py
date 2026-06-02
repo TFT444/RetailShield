@@ -27,7 +27,7 @@ KNOWN_TABLES = [
     "DeviceFileEvents", "DeviceNetworkEvents", "DeviceLogonEvents",
     "CommonSecurityLog", "Syslog", "DnsEvents",
     "OfficeActivity", "AzureActivity", "AzureDiagnostics",
-    "RetailShield_Logs_CL",
+    "RetailShield_Logs_CL", "RetailShield_POS_CL",
 ]
 
 
@@ -75,7 +75,7 @@ def check_rule(path: Path) -> list[str]:
 
 
 def main() -> int:
-    kql_files = sorted(RULES_DIR.glob("*.kql"))
+    kql_files = sorted(RULES_DIR.glob("**/*.kql"))
 
     if not kql_files:
         print("⚠  No .kql files found in detection-rules/ — nothing to validate")
