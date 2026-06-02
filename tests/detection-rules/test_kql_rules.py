@@ -38,7 +38,7 @@ def assert_not_contains(content: str, *fragments: str):
 # ── phishing_detection.kql ─────────────────────────────────────────────────────────────────────
 
 class TestPhishingDetection:
-    RULE = "phishing_detection.kql"
+    RULE = "retail/phishing_detection.kql"
 
     def test_file_exists(self):
         assert (RULES_DIR / self.RULE).exists()
@@ -136,7 +136,7 @@ class TestPhishingDetection:
 # ── ransomware_indicator.kql ──────────────────────────────────────────────────────────────────
 
 class TestRansomwareIndicator:
-    RULE = "ransomware_indicator.kql"
+    RULE = "retail/ransomware_indicator.kql"
 
     def test_file_exists(self):
         assert (RULES_DIR / self.RULE).exists()
@@ -262,7 +262,7 @@ class TestRansomwareIndicator:
 # ── pos_anomaly.kql ─────────────────────────────────────────────────────────────────────────────
 
 class TestPosAnomaly:
-    RULE = "pos_anomaly.kql"
+    RULE = "retail/pos_anomaly.kql"
 
     def test_file_exists(self):
         assert (RULES_DIR / self.RULE).exists()
@@ -368,7 +368,7 @@ class TestPosAnomaly:
 # ── ai_voice_fraud.kql ─────────────────────────────────────────────────────────────────────
 
 class TestAiVoiceFraud:
-    RULE = "ai_voice_fraud.kql"
+    RULE = "retail/ai_voice_fraud.kql"
 
     def test_file_exists(self):
         assert (RULES_DIR / self.RULE).exists()
@@ -477,7 +477,7 @@ class TestAiVoiceFraud:
 # ── supply_chain_anomaly.kql ──────────────────────────────────────────────────────────────────
 
 class TestSupplyChainAnomaly:
-    RULE = "supply_chain_anomaly.kql"
+    RULE = "retail/supply_chain_anomaly.kql"
 
     def test_file_exists(self):
         assert (RULES_DIR / self.RULE).exists()
