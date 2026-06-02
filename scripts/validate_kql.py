@@ -27,7 +27,7 @@ KNOWN_TABLES = [
     "DeviceFileEvents", "DeviceNetworkEvents", "DeviceLogonEvents",
     "CommonSecurityLog", "Syslog", "DnsEvents",
     "OfficeActivity", "AzureActivity", "AzureDiagnostics",
-    "RetailShield_Logs_CL",
+    "RetailShield_Logs_CL", "RetailShield_POS_CL",
 ]
 
 
