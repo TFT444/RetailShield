@@ -141,7 +141,27 @@ jobs:
             exit 0
           fi
 
-  # ── 6. All checks gate ──────────────────────────────────────────────────────
+  # ── 6. Sentinel Field Mapping Validation ────────────────────────────────────
+  field-mapping-validation:
+    name: Sentinel Field Mapping Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate Sentinel analytics rule field mappings
+        run: python scripts/validate_field_mapping.py
+
+  # ── 7. All checks gate ──────────────────────────────────────────────────────
   ci-success:
     name: All Checks Passed
     runs-on: ubuntu-latest
@@ -151,6 +171,7 @@ jobs:
       - python-tests
       - python-lint
       - logicapp-validation
+      - field-mapping-validation
     steps:
       - name: CI green
         run: echo "All RetailShield CI checks passed ✅"
