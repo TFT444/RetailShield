@@ -1,0 +1,67 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2022-11-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/a1b2c3d4-0009-4e5f-a009-000000000009')]",
+      "kind": "Scheduled",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "RetailShield - POS Terminal Anomaly Detection",
+        "description": "Detects anomalous POS terminal behaviour including RAM scraping patterns, unusual process execution on POS hosts, and suspicious outbound network connections. Correlates DeviceEvents, RetailShield_Logs_CL, and DeviceNetworkEvents. MITRE T1056.001.",
+        "severity": "High",
+        "enabled": true,
+        "query": "// ============================================================\n// RetailShield — POS Anomaly Detection\n// Rule ID      : RS-POS-001\n// MITRE ATT&CK : T1056.001 — Keylogging / RAM Scraping\n// Tactic       : Collection\n// Severity     : High\n// Frequency    : Every 15 minutes | Lookback: 30 minutes\n// Author       : Tanvir Farhad — ShieldTech Ltd, London\n// ============================================================\n// Detects RAM-scraping keyloggers and anomalous activity on\n// retail POS terminals. Covers unknown DLL injection into POS\n// processes, abnormal transaction volume spikes (statistical\n// anomaly), process memory dumps, and suspicious outbound\n// network connections from POS endpoints to threat IPs.\n// ============================================================\n\nlet LookbackWindow         = 30m;\nlet BaselineWindow         = 30d;\nlet TransactionVolumeThreshold = 3.5;    // std deviations above 30-day baseline\n\n// POS application process names\nlet POSProcessNames = dynamic([\n    \"xstore.exe\", \"aloha.exe\", \"tcxpos.exe\",\n    \"posready.exe\", \"retail.exe\", \"revel.exe\", \"squarepos.exe\"\n]);\n\n// Hostname prefixes that identify POS / till hardware\nlet RetailTerminalPrefix = dynamic([\n    \"pos-\", \"till-\", \"kiosk-\", \"ped-\", \"term-\"\n]);\n\n// Folders that are trusted for DLL loads — flag anything outside\nlet TrustedDLLPaths = dynamic([\n    @\"C:\\Windows\\System32\",\n    @\"C:\\Windows\\SysWOW64\",\n    @\"C:\\Program Files\",\n    @\"C:\\Program Files (x86)\"\n]);\n\n// ── Signal 1 — Unknown unsigned DLL injected into POS process ────────────────\nlet UnknownDLLInjection =\n    DeviceEvents\n    | where ingestion_time() > ago(LookbackWindow)\n    | where ActionType == \"ImageLoaded\"\n    | where InitiatingProcessFileName has_any (POSProcessNames)\n    | where FileName endswith \".dll\" or FileName endswith \".sys\"\n    | where isempty(SHA1) or Signer == \"\" or isempty(Signer)\n    | where not(FolderPath has_any (TrustedDLLPaths))\n    | extend DeviceLower = tolower(DeviceName)\n    | where DeviceLower has_any (RetailTerminalPrefix)\n    | project\n        TimeGenerated, DeviceName, DeviceId,\n        SignalType    = \"UnknownDLLInjection\",\n        POSProcess    = InitiatingProcessFileName,\n        SuspiciousDLL = FileName,\n        DLLPath       = FolderPath,\n        SHA256        = InitiatingProcessSHA256;\n\n// ── Signal 2 — Abnormal transaction volume (statistical spike) ───────────────\nlet AbnormalTransactionVolume =\n    RetailShield_Logs_CL\n    | where ingestion_time() > ago(BaselineWindow)\n    | where EventType_s == \"POS_Transaction\"\n    | summarize HourlyCount = count() by TerminalID_s, bin(TimeGenerated, 1h)\n    | summarize AvgCount = avg(HourlyCount), StdDev = stdev(HourlyCount)\n      by TerminalID_s\n    | join kind=inner (\n        RetailShield_Logs_CL\n        | where ingestion_time() > ago(LookbackWindow)\n        | where EventType_s == \"POS_Transaction\"\n        | summarize RecentCount = count() by TerminalID_s\n    ) on TerminalID_s\n    | where RecentCount > AvgCount + (TransactionVolumeThreshold * StdDev)\n    | extend AnomalyScore = round((RecentCount - AvgCount) / StdDev, 2)\n    | project\n        TimeGenerated = now(), DeviceName = TerminalID_s, DeviceId = \"\",\n        SignalType    = \"AbnormalTransactionVolume\",\n        POSProcess    = \"POS_Transaction\",\n        SuspiciousDLL = \"\",\n        DLLPath       = \"\",\n        SHA256        = \"\";\n\n// ── Signal 3 — Process memory dump targeting a POS application ───────────────\nlet ProcessMemoryDump =\n    DeviceEvents\n    | where ingestion_time() > ago(LookbackWindow)\n    | where ActionType in (\"ProcessDumped\", \"MemoryDumpCreated\")\n        or (ActionType == \"ProcessAccessed\"\n            and ProcessCommandLine has_any (\"MiniDump\", \"ProcDump\", \"createdump\", \"procdump\"))\n    | where tolower(TargetProcessFileName) has_any (POSProcessNames)\n    | project\n        TimeGenerated, DeviceName, DeviceId,\n        SignalType    = \"ProcessMemoryDump\",\n        POSProcess    = TargetProcessFileName,\n        SuspiciousDLL = InitiatingProcessFileName,\n        DLLPath       = ProcessCommandLine,\n        SHA256        = InitiatingProcessSHA256;\n\n// ── Signal 4 — Suspicious outbound network from POS to threat IP ─────────────\nlet SuspiciousNetworkFromPOS =\n    DeviceNetworkEvents\n    | where ingestion_time() > ago(LookbackWindow)\n    | where tolower(DeviceName) has_any (RetailTerminalPrefix)\n    | where RemoteIPType == \"Public\"\n    | where not(RemotePort in (443, 80, 8443, 8080))\n    | join kind=inner (\n        _GetWatchlist(\"RetailIOCWatchlist\")\n        | project ThreatIP = tostring(column_ifexists(\"SearchKey\", \"\"))\n    ) on $left.RemoteIP == $right.ThreatIP\n    | project\n        TimeGenerated, DeviceName, DeviceId,\n        SignalType    = \"SuspiciousNetworkFromPOS\",\n        POSProcess    = InitiatingProcessFileName,\n        SuspiciousDLL = RemoteIP,\n        DLLPath       = tostring(RemotePort),\n        SHA256        = \"\";\n\n// ── Union all signals ─────────────────────────────────────────────────────────\nunion UnknownDLLInjection, AbnormalTransactionVolume, ProcessMemoryDump, SuspiciousNetworkFromPOS\n| summarize\n    SignalCount   = count(),\n    Signals       = make_set(SignalType),\n    FirstSeen     = min(TimeGenerated),\n    LastSeen      = max(TimeGenerated),\n    SuspiciousDLL = take_any(SuspiciousDLL),\n    POSProcess    = take_any(POSProcess),\n    DeviceId      = take_any(DeviceId)\n  by DeviceName\n| where SignalCount >= 1\n| extend\n    RiskScore       = case(SignalCount >= 3, 95, SignalCount == 2, 82, 65),\n    MitreTechnique  = \"T1056.001\",\n    MitreTactic     = \"Collection\",\n    Severity        = case(SignalCount >= 2, \"HIGH\", \"HIGH\"),\n    AlertSeverity   = case(SignalCount >= 3, \"CRITICAL\", \"HIGH\"),\n    PlaybookTrigger = \"suspend_terminal\",\n    AlertTitle      = strcat(\"POS Anomaly — Potential RAM Scraping on \", DeviceName)\n| project\n    AlertTitle,\n    DeviceName,\n    DeviceId,\n    AlertSeverity,\n    Severity,\n    RiskScore,\n    SignalCount,\n    Signals,\n    SuspiciousDLL,\n    POSProcess,\n    MitreTechnique,\n    MitreTactic,\n    PlaybookTrigger,\n    FirstSeen,\n    LastSeen\n| sort by RiskScore desc\n",
+        "queryFrequency": "PT15M",
+        "queryPeriod": "PT15M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT5H",
+        "suppressionEnabled": false,
+        "tactics": [
+          "Collection"
+        ],
+        "techniques": [
+          "T1056.001"
+        ],
+        "alertRuleTemplateName": "a1b2c3d4-0009-4e5f-a009-000000000009",
+        "entityMappings": [
+          {
+            "entityType": "Host",
+            "fieldMappings": [
+              {
+                "identifier": "HostName",
+                "columnName": "DeviceName"
+              }
+            ]
+          }
+        ],
+        "customDetails": {
+          "PlaybookTrigger": "PlaybookTrigger",
+          "RiskScore": "RiskScore",
+          "TerminalID": "TerminalID"
+        },
+        "requiredDataConnectors": [
+          {
+            "connectorId": "RetailShield",
+            "dataTypes": [
+              "DeviceEvents",
+              "RetailShield_Logs_CL",
+              "DeviceNetworkEvents"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
