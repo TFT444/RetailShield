@@ -1,0 +1,144 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+  "handler": "Microsoft.Azure.CreateUIDef",
+  "version": "0.1.2-preview",
+  "parameters": {
+    "config": {
+      "isWizard": false,
+      "basics": {
+        "description": "**RetailShield** is a Microsoft Sentinel Solution providing retail-specific threat detection rules, automated response playbooks, and UK compliance assistance. It covers Point-of-Sale fraud, phishing, ransomware, credential attacks, supply chain threats, and more.\n\n**Version:** 1.0.0  \n**Publisher:** ShieldTech Ltd  \n**Category:** Security – Retail\n\n> After deployment, authorise the API connections for each Logic App playbook and assign the **Sentinel Responder** role to each playbook's managed identity."
+      }
+    },
+    "basics": [
+      {
+        "name": "workspaceName",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Sentinel workspace name",
+        "placeholder": "my-sentinel-workspace",
+        "toolTip": "Name of the existing Log Analytics workspace where Microsoft Sentinel is enabled.",
+        "constraints": {
+          "required": true,
+          "regex": "^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]$",
+          "validationMessage": "Workspace name must be 3–63 characters, letters, numbers, and hyphens only."
+        }
+      },
+      {
+        "name": "location",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Azure region",
+        "defaultValue": "uksouth",
+        "toolTip": "Azure region where the solution resources will be deployed. Must match the region of your Sentinel workspace.",
+        "constraints": {
+          "required": true
+        }
+      }
+    ],
+    "steps": [
+      {
+        "name": "playbooks",
+        "label": "Playbooks",
+        "elements": [
+          {
+            "name": "deployPlaybooks",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Deploy response playbooks (Logic Apps)",
+            "toolTip": "Deploy the five Logic App playbooks: block-ip, isolate-endpoint, quarantine-email, suspend-terminal, and incident-reporting.",
+            "defaultValue": true
+          },
+          {
+            "name": "complianceSection",
+            "type": "Microsoft.Common.Section",
+            "label": "UK Compliance Assistant",
+            "elements": [
+              {
+                "name": "complianceInfo",
+                "type": "Microsoft.Common.InfoBox",
+                "visible": "[steps('playbooks').deployPlaybooks]",
+                "options": {
+                  "icon": "Warning",
+                  "text": "The incident-reporting playbook sends draft compliance notifications to your INTERNAL security/compliance contact when a Critical incident is detected. It does NOT auto-submit reports to regulators. A human must review and submit via the ICO and NCSC portals."
+                }
+              },
+              {
+                "name": "complianceContactEmail",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Compliance contact email",
+                "placeholder": "security@yourorganisation.com",
+                "toolTip": "Internal email address for compliance notifications. NOT an ICO or government address.",
+                "visible": "[steps('playbooks').deployPlaybooks]",
+                "constraints": {
+                  "required": false,
+                  "regex": "^[^@]+@[^@]+\\.[^@]+$",
+                  "validationMessage": "Enter a valid email address."
+                }
+              },
+              {
+                "name": "organisationName",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Organisation name",
+                "defaultValue": "Retail Organisation",
+                "toolTip": "Your organisation name, used in compliance notification emails.",
+                "visible": "[steps('playbooks').deployPlaybooks]",
+                "constraints": {
+                  "required": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "detection",
+        "label": "Detection Rules",
+        "elements": [
+          {
+            "name": "deployAnalyticsRules",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Deploy analytics rules (13 retail detection rules)",
+            "toolTip": "Deploy all 13 scheduled analytics rules. Requires the custom tables to be created first (handled automatically if 'Deploy data connector' is enabled).",
+            "defaultValue": true
+          },
+          {
+            "name": "rulesInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "visible": "[steps('detection').deployAnalyticsRules]",
+            "options": {
+              "icon": "Info",
+              "text": "Rules deployed: Phishing Detection, POS Void/Refund Fraud, MFA Fatigue, Data Exfiltration, AI Voice Fraud, Credential Stuffing, After-Hours Access, Gift Card Fraud, POS Anomaly, Ransomware Indicator, Supply Chain Anomaly, Supplier Impossible Travel, Privileged Role Addition."
+            }
+          },
+          {
+            "name": "deployDataConnector",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Create custom Log Analytics tables (RetailShield_POS_CL and RetailShield_Logs_CL)",
+            "toolTip": "Creates the custom table schemas required by POS and voice fraud detection rules. Disable if tables already exist.",
+            "defaultValue": true
+          }
+        ]
+      },
+      {
+        "name": "prerequisites",
+        "label": "Pre-deployment checklist",
+        "elements": [
+          {
+            "name": "prereqInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "options": {
+              "icon": "Warning",
+              "text": "Before deploying, ensure the following are in place:\n\n1. Microsoft Sentinel is enabled on the target workspace\n2. The following data connectors are configured: Azure Active Directory, Microsoft Defender for Endpoint, Microsoft Defender for Office 365\n3. The following watchlists exist (or will be created manually): RetailIOCWatchlist, AbuseIPDBWatchlist, RetailServiceAccounts, RetailSupplierAccounts, RetailApprovedSenders\n4. After deployment, grant 'Sentinel Responder' role to each Logic App's managed identity\n5. After deployment, authorise the azuresentinel and office365 API connections in each Logic App"
+            }
+          }
+        ]
+      }
+    ],
+    "outputs": {
+      "workspaceName": "[basics('workspaceName')]",
+      "location": "[basics('location')]",
+      "deployPlaybooks": "[steps('playbooks').deployPlaybooks]",
+      "complianceContactEmail": "[steps('playbooks').complianceSection.complianceContactEmail]",
+      "organisationName": "[steps('playbooks').complianceSection.organisationName]",
+      "deployAnalyticsRules": "[steps('detection').deployAnalyticsRules]",
+      "deployDataConnector": "[steps('detection').deployDataConnector]"
+    }
+  }
+}
