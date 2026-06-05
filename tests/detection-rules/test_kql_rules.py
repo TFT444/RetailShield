@@ -1034,8 +1034,10 @@ class TestDataExfiltration:
 
     def test_threshold_params(self):
         content = load_rule(self.RULE)
-        assert_contains(content, "DNSQueryThresh", "SubdomainLenThresh",
-                         "OutboundMBThresh", "StagingFileThresh")
+        assert_contains(
+            content, "DNSQueryThresh", "SubdomainLenThresh",
+            "OutboundMBThresh", "StagingFileThresh"
+        )
 
     def test_private_ip_exclusions(self):
         content = load_rule(self.RULE)
