@@ -6,7 +6,6 @@ reference columns actually present in the corresponding KQL query output.
 """
 
 import json
-import os
 import re
 import sys
 from pathlib import Path
