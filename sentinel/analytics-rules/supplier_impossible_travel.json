@@ -1,0 +1,75 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2022-11-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/a1b2c3d4-0012-4e5f-a012-000000000012')]",
+      "kind": "Scheduled",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "RetailShield - Supplier Impossible Travel Detection",
+        "description": "Detects authentication events from supplier accounts that are geographically impossible given prior login location and elapsed time. Cross-references RetailSupplierAccounts watchlist. MITRE T1199/T1078.",
+        "severity": "Medium",
+        "enabled": true,
+        "query": "// ============================================================\n// RetailShield — Supplier Impossible Travel / New Geo Detection Rule\n// MITRE ATT&CK : T1199 — Trusted Relationship\n//                T1078 — Valid Accounts\n// Tactic       : Initial Access\n// Severity     : Medium\n// Frequency    : Every 15 minutes | Lookback: 4 hours\n// Author       : Tanvir Farhad — ShieldTech Ltd, London\n// Reference    : Retail supply chain compromise — vendor credentials abused\n//                from threat-actor infrastructure in foreign jurisdictions\n// ============================================================\n\nlet LookbackPeriod        = 4h;\nlet ImpossibleSpeedKmph   = 900.0;  // max plausible travel speed (commercial flight)\nlet HighRiskCountries = dynamic([\n    \"RU\", \"CN\", \"KP\", \"IR\", \"BY\", \"SY\"\n]);\n\n// ── Supplier accounts watchlist ───────────────────────────────────────────────\nlet SupplierAccounts = (\n    _GetWatchlist(\"RetailSupplierAccounts\")\n    | project SupplierUPN = tolower(UserPrincipalName), SupplierName\n);\n\n// ── Step 1: Baseline — all supplier sign-ins with location in lookback ─────────\nlet SupplierSignins =\n    SigninLogs\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where ResultType == \"0\"\n    | where isnotempty(UserPrincipalName)\n    | extend NormUPN = tolower(UserPrincipalName)\n    | join kind=inner (SupplierAccounts) on $left.NormUPN == $right.SupplierUPN\n    | extend\n        Latitude  = toreal(LocationDetails.geoCoordinates.latitude),\n        Longitude = toreal(LocationDetails.geoCoordinates.longitude),\n        CountryCode = tostring(LocationDetails.countryOrRegion)\n    | project\n        UserPrincipalName, SupplierName, TimeGenerated,\n        IPAddress, CountryCode, City = tostring(LocationDetails.city),\n        Latitude, Longitude, AppDisplayName;\n\n// ── Step 2: Impossible travel — two sign-ins too far apart too fast ────────────\nlet ImpossibleTravel =\n    SupplierSignins\n    | join kind=inner (\n        SupplierSignins\n        | project\n            UserPrincipalName,\n            Time2      = TimeGenerated,\n            Country2   = CountryCode,\n            City2      = City,\n            Lat2       = Latitude,\n            Lon2       = Longitude,\n            IP2        = IPAddress\n    ) on UserPrincipalName\n    | where Time2 > TimeGenerated                           // second sign-in is later\n        and Time2 < TimeGenerated + 4h                     // within 4-hour window\n        and CountryCode != Country2                        // different countries\n    | extend\n        TimeDeltaHours = datetime_diff(\"minute\", Time2, TimeGenerated) / 60.0,\n        DistanceKm = geo_distance_2points(Longitude, Latitude, Lon2, Lat2) / 1000.0\n    | where TimeDeltaHours > 0\n    | extend RequiredSpeedKmph = DistanceKm / TimeDeltaHours\n    | where RequiredSpeedKmph > ImpossibleSpeedKmph\n    | extend ThreatSignal = \"ImpossibleTravel\";\n\n// ── Step 3: First-ever sign-in from a new country for this supplier account ───\nlet NewCountrySignin =\n    SupplierSignins\n    | summarize\n        CountriesSeen  = make_set(CountryCode, 50),\n        SigninCount    = count(),\n        LastSeen       = max(TimeGenerated)\n        by UserPrincipalName, SupplierName\n    | mv-expand CountryCode = CountriesSeen to typeof(string)\n    | join kind=inner (\n        SupplierSignins\n        | where ingestion_time() > ago(30m)             // recent sign-ins only\n        | project UserPrincipalName, RecentCountry = CountryCode,\n                  RecentTime = TimeGenerated, RecentIP = IPAddress\n    ) on UserPrincipalName\n    | where RecentCountry !in (CountriesSeen)           // country never seen before\n    | extend ThreatSignal = \"NewCountryForSupplier\";\n\n// ── Step 4: Sign-in from high-risk country ────────────────────────────────────\nlet HighRiskCountrySignin =\n    SupplierSignins\n    | where CountryCode in (HighRiskCountries)\n    | extend ThreatSignal = \"HighRiskCountrySignin\";\n\n// ── Step 5: Union all signals ─────────────────────────────────────────────────\nunion\n    (ImpossibleTravel\n        | project\n            Timestamp       = TimeGenerated,\n            UserPrincipalName, SupplierName,\n            IPAddress, CountryCode, City,\n            ThreatSignal,\n            RequiredSpeedKmph,\n            DistanceKm,\n            SecondCountry   = Country2,\n            SecondCity      = City2),\n    (NewCountrySignin\n        | project\n            Timestamp       = RecentTime,\n            UserPrincipalName, SupplierName,\n            IPAddress       = RecentIP,\n            CountryCode     = RecentCountry,\n            City            = \"\",\n            ThreatSignal,\n            RequiredSpeedKmph = 0.0,\n            DistanceKm        = 0.0,\n            SecondCountry     = \"\",\n            SecondCity        = \"\"),\n    (HighRiskCountrySignin\n        | project\n            Timestamp       = TimeGenerated,\n            UserPrincipalName, SupplierName,\n            IPAddress, CountryCode, City,\n            ThreatSignal,\n            RequiredSpeedKmph = 0.0,\n            DistanceKm        = 0.0,\n            SecondCountry     = \"\",\n            SecondCity        = \"\")\n| extend\n    AlertSeverity   = \"Medium\",\n    MitreTechnique  = \"T1199, T1078\",\n    MitreTactic     = \"Initial Access\",\n    PlaybookTrigger = \"notify_soc\",\n    RiskScore       = 70\n| project\n    Timestamp,\n    UserPrincipalName,\n    SupplierName,\n    ThreatSignal,\n    IPAddress,\n    CountryCode,\n    City,\n    SecondCountry,\n    SecondCity,\n    RequiredSpeedKmph,\n    DistanceKm,\n    AlertSeverity,\n    MitreTechnique,\n    MitreTactic,\n    PlaybookTrigger,\n    RiskScore\n| order by Timestamp desc\n",
+        "queryFrequency": "PT15M",
+        "queryPeriod": "PT15M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT5H",
+        "suppressionEnabled": false,
+        "tactics": [
+          "InitialAccess"
+        ],
+        "techniques": [
+          "T1199",
+          "T1078"
+        ],
+        "alertRuleTemplateName": "a1b2c3d4-0012-4e5f-a012-000000000012",
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              {
+                "identifier": "FullName",
+                "columnName": "UserPrincipalName"
+              }
+            ]
+          },
+          {
+            "entityType": "IP",
+            "fieldMappings": [
+              {
+                "identifier": "Address",
+                "columnName": "IPAddress"
+              }
+            ]
+          }
+        ],
+        "customDetails": {
+          "PlaybookTrigger": "PlaybookTrigger",
+          "RiskScore": "RiskScore",
+          "TravelSpeedKmH": "TravelSpeedKmH"
+        },
+        "requiredDataConnectors": [
+          {
+            "connectorId": "RetailShield",
+            "dataTypes": [
+              "SigninLogs"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

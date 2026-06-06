@@ -1,0 +1,76 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2022-11-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/a1b2c3d4-0007-4e5f-a007-000000000007')]",
+      "kind": "Scheduled",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "RetailShield - After-Hours System Access Detection",
+        "description": "Detects interactive sign-ins and resource access occurring outside configured business hours for retail accounts. Cross-references RetailServiceAccounts watchlist to exclude known automation. MITRE T1078.",
+        "severity": "Medium",
+        "enabled": true,
+        "query": "// ============================================================\n// RetailShield — After Hours Access Detection Rule\n// MITRE ATT&CK : T1078 — Valid Accounts\n// Tactic       : Persistence\n// Severity     : Medium\n// Frequency    : Every 5 minutes | Lookback: 30 minutes\n// Author       : Tanvir Farhad — ShieldTech Ltd, London\n// Reference    : CIFAS Insider Threat Report 2024 — £1,000+ loss per\n//                employee per year; access outside hours is a key indicator\n// ============================================================\n\nlet LookbackPeriod    = 30m;\nlet BusinessHourStart = 7;    // 07:00 local time\nlet BusinessHourEnd   = 20;   // 20:00 local time\n\n// ── Service accounts and automation excluded from alerting ───────────────────\nlet ServiceAccountExclusions = (\n    _GetWatchlist(\"RetailServiceAccounts\")\n    | project ExcludedAccount = tolower(UserPrincipalName)\n);\n\n// ── Step 1: Interactive logins outside business hours ────────────────────────\nlet AfterHoursLogins =\n    SigninLogs\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where ResultType == \"0\"                          // successful sign-ins only\n    | where IsInteractive == true                      // exclude non-interactive service flows\n    | where isnotempty(UserPrincipalName)\n    | extend HourOfDay = hourofday(TimeGenerated)\n    | where HourOfDay < BusinessHourStart or HourOfDay >= BusinessHourEnd\n    | extend NormUser = tolower(UserPrincipalName)\n    | join kind=leftanti (ServiceAccountExclusions)\n        on $left.NormUser == $right.ExcludedAccount   // exclude known service accounts\n    | summarize\n        LoginCount    = count(),\n        SourceIPs     = make_set(IPAddress, 5),\n        Locations     = make_set(Location, 5),\n        AppNames      = make_set(AppDisplayName, 5),\n        EarliestLogin = min(TimeGenerated),\n        LatestLogin   = max(TimeGenerated)\n        by UserPrincipalName, bin(TimeGenerated, 5m)\n    | extend ThreatSignal = \"AfterHoursInteractiveLogin\";\n\n// ── Step 2: Privileged role access outside hours ─────────────────────────────\nlet AfterHoursPrivilegedAccess =\n    AuditLogs\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where Category in (\"RoleManagement\", \"UserManagement\", \"GroupManagement\")\n    | where OperationName has_any (\n        \"Add member to role\",\n        \"Remove member from role\",\n        \"Reset user password\",\n        \"Update user\",\n        \"Delete user\"\n    )\n    | extend HourOfDay = hourofday(TimeGenerated)\n    | where HourOfDay < BusinessHourStart or HourOfDay >= BusinessHourEnd\n    | extend InitiatedByUser = tostring(InitiatedBy.user.userPrincipalName)\n    | where isnotempty(InitiatedByUser)\n    | extend NormUser = tolower(InitiatedByUser)\n    | join kind=leftanti (ServiceAccountExclusions)\n        on $left.NormUser == $right.ExcludedAccount\n    | summarize\n        ActionCount   = count(),\n        Operations    = make_set(OperationName, 5),\n        TargetObjects = make_set(tostring(TargetResources[0].displayName), 5),\n        EarliestLogin = min(TimeGenerated),\n        LatestLogin   = max(TimeGenerated)\n        by InitiatedByUser, bin(TimeGenerated, 5m)\n    | extend ThreatSignal = \"AfterHoursPrivilegedOperation\";\n\n// ── Step 3: Sensitive system access after hours ───────────────────────────────\nlet AfterHoursSensitiveAccess =\n    DeviceLogonEvents\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where ActionType == \"LogonSuccess\"\n    | where LogonType in (\"Interactive\", \"RemoteInteractive\")\n    | where isnotempty(AccountName)\n    | extend HourOfDay = hourofday(Timestamp)\n    | where HourOfDay < BusinessHourStart or HourOfDay >= BusinessHourEnd\n    | where DeviceName has_any (\"pos-\", \"erpserver\", \"payroll\", \"finance\", \"dc-\")\n    | extend NormUser = tolower(AccountName)\n    | join kind=leftanti (ServiceAccountExclusions)\n        on $left.NormUser == $right.ExcludedAccount\n    | summarize\n        LoginCount    = count(),\n        Devices       = make_set(DeviceName, 5),\n        EarliestLogin = min(Timestamp),\n        LatestLogin   = max(Timestamp)\n        by AccountName, RemoteIP, bin(Timestamp, 5m)\n    | extend ThreatSignal = \"AfterHoursSensitiveDeviceLogon\";\n\n// ── Step 4: Union all signals and surface alerts ──────────────────────────────\nunion\n    (AfterHoursLogins\n        | extend\n            AccountName = UserPrincipalName,\n            Devices = dynamic([]), ActionCount = 0,\n            Operations = dynamic([]), TargetObjects = dynamic([]),\n            RemoteIP = tostring(SourceIPs[0])),\n    (AfterHoursPrivilegedAccess\n        | extend\n            AccountName = InitiatedByUser,\n            LoginCount = ActionCount, SourceIPs = dynamic([]),\n            Locations = dynamic([]), AppNames = dynamic([]),\n            Devices = dynamic([]), RemoteIP = \"\"),\n    (AfterHoursSensitiveAccess\n        | extend\n            UserPrincipalName = AccountName,\n            SourceIPs = dynamic([]), Locations = dynamic([]),\n            AppNames = dynamic([]), ActionCount = 0,\n            Operations = dynamic([]), TargetObjects = dynamic([]))\n| extend\n    AlertSeverity   = \"Medium\",\n    MitreTechnique  = \"T1078\",\n    MitreTactic     = \"Persistence\",\n    PlaybookTrigger = \"notify_soc\",\n    RiskScore       = 60\n| project\n    Timestamp        = coalesce(EarliestLogin),\n    AccountName,\n    ThreatSignal,\n    LoginCount,\n    SourceIPs,\n    Locations,\n    AppNames,\n    Devices,\n    RemoteIP,\n    Operations,\n    TargetObjects,\n    AlertSeverity,\n    MitreTechnique,\n    MitreTactic,\n    PlaybookTrigger,\n    RiskScore\n| order by Timestamp desc\n",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT30M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT5H",
+        "suppressionEnabled": false,
+        "tactics": [
+          "Persistence"
+        ],
+        "techniques": [
+          "T1078"
+        ],
+        "alertRuleTemplateName": "a1b2c3d4-0007-4e5f-a007-000000000007",
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              {
+                "identifier": "FullName",
+                "columnName": "UserPrincipalName"
+              }
+            ]
+          },
+          {
+            "entityType": "IP",
+            "fieldMappings": [
+              {
+                "identifier": "Address",
+                "columnName": "IPAddress"
+              }
+            ]
+          }
+        ],
+        "customDetails": {
+          "PlaybookTrigger": "PlaybookTrigger",
+          "RiskScore": "RiskScore",
+          "AccessHour": "AccessHour"
+        },
+        "requiredDataConnectors": [
+          {
+            "connectorId": "RetailShield",
+            "dataTypes": [
+              "SigninLogs",
+              "AuditLogs",
+              "DeviceLogonEvents"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

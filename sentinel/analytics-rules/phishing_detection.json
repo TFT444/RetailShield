@@ -1,0 +1,75 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2022-11-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/a1b2c3d4-0001-4e5f-a001-000000000001')]",
+      "kind": "Scheduled",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "RetailShield - Retail Phishing Email Detection",
+        "description": "Detects phishing emails with malicious attachments targeting retail staff. Correlates EmailAttachmentInfo and EmailEvents to identify suspicious sender/attachment combinations aligned with MITRE T1566.001.",
+        "severity": "High",
+        "enabled": true,
+        "query": "// ============================================================\n// RetailShield — Phishing Detection Rule\n// MITRE ATT&CK : T1566.001 — Spearphishing Attachment\n// Tactic       : Initial Access\n// Severity     : High\n// Frequency    : Every 5 minutes | Lookback: 1 hour\n// Author       : Tanvir Farhad — ShieldTech Ltd, London\n// ============================================================\n\nlet LookbackPeriod = 1h;\n\n// File extensions weaponised in retail phishing campaigns\nlet SuspiciousExtensions = dynamic([\n    \".exe\", \".js\", \".vbs\", \".docm\", \".xlsm\", \".pptm\",\n    \".hta\", \".bat\", \".ps1\", \".lnk\", \".iso\", \".img\", \".wsf\"\n]);\n\n// Pull approved sender domains from Sentinel watchlist\n// (populate sentinel/watchlists/retail-ioc-watchlist.csv)\nlet ApprovedSenderDomains = (\n    _GetWatchlist(\"RetailApprovedSenders\")\n    | project SenderDomain = tolower(tostring(column_ifexists(\"SenderDomain\", \"\")))\n);\n\n// ── Step 1: Identify suspicious inbound attachments ──────────\nlet SuspiciousAttachments =\n    EmailAttachmentInfo\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where isnotempty(FileName)\n    | extend FileExtension = tolower(tostring(split(FileName, \".\")[-1]))\n    | extend FileExtensionDot = strcat(\".\", FileExtension)\n    | where FileExtensionDot in (SuspiciousExtensions)\n        or FileName matches regex @\"(?i)\\.(exe|js|vbs|docm|xlsm|pptm|hta|bat|ps1|lnk|iso|img|wsf)$\"\n    | project\n        NetworkMessageId,\n        FileName,\n        FileExtension,\n        FileSize,\n        SHA256;\n\n// ── Step 2: Join with delivered email events ─────────────────\nlet PhishingEmails =\n    EmailEvents\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where DeliveryAction == \"Delivered\"\n    | where EmailDirection == \"Inbound\"\n    | extend SenderDomain = tolower(tostring(split(SenderFromAddress, \"@\")[-1]))\n    | join kind=leftanti (ApprovedSenderDomains) on SenderDomain\n    | join kind=inner (SuspiciousAttachments) on NetworkMessageId\n    | extend\n        // Classify lure type based on subject keywords common in retail phishing\n        LureCategory = case(\n            Subject has_any (\"invoice\", \"remittance\", \"payment\", \"order confirmation\",\n                             \"dispatch\", \"delivery\", \"supplier\", \"purchase order\"),\n                \"Financial / Supply-Chain Lure\",\n            Subject has_any (\"urgent\", \"action required\", \"account suspended\",\n                             \"verify\", \"password reset\", \"security alert\"),\n                \"Credential Harvesting Lure\",\n            Subject has_any (\"payroll\", \"salary\", \"HR\", \"rota\", \"schedule\", \"shift\"),\n                \"HR / Insider Lure\",\n            Subject has_any (\"CEO\", \"director\", \"executive\", \"management\"),\n                \"Business Email Compromise\",\n            \"General Phishing\"\n        )\n    | extend\n        RecipientAccount    = tostring(split(RecipientEmailAddress, \"@\")[0]),\n        RecipientDomain     = tostring(split(RecipientEmailAddress, \"@\")[1]),\n        SenderAddressLower  = tolower(SenderFromAddress);\n\n// ── Step 3: Surface final alert fields ───────────────────────\nPhishingEmails\n| project\n    TimeGenerated         = Timestamp,\n    SenderAddress         = SenderFromAddress,\n    SenderDomain,\n    RecipientEmailAddress,\n    RecipientAccount,\n    Subject,\n    LureCategory,\n    AttachmentFileName    = FileName,\n    AttachmentExtension   = FileExtension,\n    AttachmentSizeMB      = round(toreal(FileSize) / 1048576, 2),\n    AttachmentSHA256      = SHA256,\n    NetworkMessageId,\n    DeliveryLocation      = LatestDeliveryLocation\n| extend\n    // Fields consumed by the triage Logic App\n    AlertSeverity         = \"High\",\n    MitreTechnique        = \"T1566.001\",\n    MitreTactic           = \"Initial Access\",\n    PlaybookTrigger       = \"quarantine_email\"\n| order by TimeGenerated desc\n",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT5M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT5H",
+        "suppressionEnabled": false,
+        "tactics": [
+          "InitialAccess"
+        ],
+        "techniques": [
+          "T1566.001"
+        ],
+        "alertRuleTemplateName": "a1b2c3d4-0001-4e5f-a001-000000000001",
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              {
+                "identifier": "FullName",
+                "columnName": "RecipientEmailAddress"
+              }
+            ]
+          },
+          {
+            "entityType": "Mailbox",
+            "fieldMappings": [
+              {
+                "identifier": "MailboxPrimaryAddress",
+                "columnName": "SenderFromAddress"
+              }
+            ]
+          }
+        ],
+        "customDetails": {
+          "PlaybookTrigger": "PlaybookTrigger",
+          "RiskScore": "RiskScore",
+          "SignalName": "SignalName"
+        },
+        "requiredDataConnectors": [
+          {
+            "connectorId": "RetailShield",
+            "dataTypes": [
+              "EmailAttachmentInfo",
+              "EmailEvents"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

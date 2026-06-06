@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2022-11-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/a1b2c3d4-0002-4e5f-a002-000000000002')]",
+      "kind": "Scheduled",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "RetailShield - POS Void/Refund Fraud Pattern",
+        "description": "Detects suspicious void and refund patterns at POS terminals indicative of employee fraud or skimming. Correlates high-volume voids and refunds per employee against RetailShield_POS_CL. MITRE T1056.001.",
+        "severity": "High",
+        "enabled": true,
+        "query": "// ============================================================\n// RetailShield — POS Off-Hours Void / Refund Anomaly\n// MITRE ATT&CK : T1056.001 — Keylogging / Input Capture (POS)\n// Tactic       : Collection\n// Severity     : High\n// Frequency    : Every 5 minutes | Lookback: 30 minutes\n// Author       : Tanvir Farhad — ShieldTech Ltd, London\n// Reference    : UK retail insider fraud — employees processing late-night\n//                voids to siphon cash; CIFAS insider fraud report 2024\n// ============================================================\n\nlet LookbackPeriod      = 30m;\nlet BusinessHourStart   = 7;      // 07:00\nlet BusinessHourEnd     = 21;     // 21:00\nlet VoidRefundThresh    = 5;      // per operator per window\nlet HighValueThresh     = 500.0;  // GBP — high-value void/refund without override\n\n// ── Step 1: Voids / refunds processed outside business hours ─────────────────\nlet AfterHoursVoids =\n    RetailShield_POS_CL\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where TransactionType_s in (\"VOID\", \"REFUND\", \"RETURN\")\n    | where isnotempty(OperatorId_s)\n    | extend HourOfDay = hourofday(TimeGenerated)\n    | where HourOfDay < BusinessHourStart or HourOfDay >= BusinessHourEnd\n    | summarize\n        TransactionCount = count(),\n        TotalValue       = sum(toreal(TransactionAmount_d)),\n        TerminalIDs      = make_set(TerminalId_s, 5),\n        TransactionTypes = make_set(TransactionType_s, 3),\n        EarliestTx       = min(TimeGenerated),\n        LatestTx         = max(TimeGenerated)\n        by OperatorId_s, StoreId_s, bin(TimeGenerated, 5m)\n    | extend ThreatSignal = \"AfterHoursVoidRefund\";\n\n// ── Step 2: High-volume voids / refunds per operator in a single session ──────\nlet HighVolumeVoids =\n    RetailShield_POS_CL\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where TransactionType_s in (\"VOID\", \"REFUND\", \"RETURN\")\n    | where isnotempty(OperatorId_s)\n    | summarize\n        TransactionCount = count(),\n        TotalValue       = sum(toreal(TransactionAmount_d)),\n        TerminalIDs      = make_set(TerminalId_s, 5),\n        TransactionTypes = make_set(TransactionType_s, 3),\n        EarliestTx       = min(TimeGenerated),\n        LatestTx         = max(TimeGenerated)\n        by OperatorId_s, StoreId_s, bin(TimeGenerated, 5m)\n    | where TransactionCount >= VoidRefundThresh\n    | extend ThreatSignal = \"HighVolumeVoidRefund\";\n\n// ── Step 3: High-value void without manager override ─────────────────────────\nlet HighValueVoidNoOverride =\n    RetailShield_POS_CL\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where TransactionType_s in (\"VOID\", \"REFUND\")\n    | where toreal(TransactionAmount_d) >= HighValueThresh\n    | where isempty(ManagerOverrideId_s) or ManagerOverrideId_s == \"\"\n    | extend ThreatSignal = \"HighValueVoidNoOverride\";\n\n// ── Step 4: Refund to different tender type than original payment ─────────────\nlet TenderMismatchRefund =\n    RetailShield_POS_CL\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where TransactionType_s == \"REFUND\"\n    | where isnotempty(OriginalTenderType_s) and isnotempty(RefundTenderType_s)\n    | where OriginalTenderType_s != RefundTenderType_s\n    | where RefundTenderType_s in (\"CASH\", \"GIFT_CARD\")  // higher-risk refund tenders\n    | extend ThreatSignal = \"TenderMismatchRefund\";\n\n// ── Step 5: Union all signals ─────────────────────────────────────────────────\nunion\n    (AfterHoursVoids\n        | extend\n            TransactionAmount_d = TotalValue,\n            TerminalId_s = tostring(TerminalIDs[0]),\n            ManagerOverrideId_s = \"\",\n            OriginalTenderType_s = \"\", RefundTenderType_s = \"\"),\n    (HighVolumeVoids\n        | extend\n            TransactionAmount_d = TotalValue,\n            TerminalId_s = tostring(TerminalIDs[0]),\n            ManagerOverrideId_s = \"\",\n            OriginalTenderType_s = \"\", RefundTenderType_s = \"\"),\n    (HighValueVoidNoOverride\n        | extend\n            TransactionCount = 1,\n            TotalValue = toreal(TransactionAmount_d),\n            TerminalIDs = pack_array(TerminalId_s),\n            TransactionTypes = pack_array(TransactionType_s),\n            EarliestTx = TimeGenerated, LatestTx = TimeGenerated,\n            OriginalTenderType_s = \"\", RefundTenderType_s = \"\"),\n    (TenderMismatchRefund\n        | extend\n            TransactionCount = 1,\n            TotalValue = toreal(TransactionAmount_d),\n            TerminalIDs = pack_array(TerminalId_s),\n            TransactionTypes = pack_array(TransactionType_s),\n            EarliestTx = TimeGenerated, LatestTx = TimeGenerated,\n            ManagerOverrideId_s = \"\")\n| extend\n    AlertSeverity   = \"High\",\n    MitreTechnique  = \"T1056.001\",\n    MitreTactic     = \"Collection\",\n    PlaybookTrigger = \"notify_soc\",\n    RiskScore       = 80\n| project\n    Timestamp        = coalesce(EarliestTx, TimeGenerated),\n    OperatorId_s,\n    StoreId_s,\n    TerminalId_s,\n    ThreatSignal,\n    TransactionCount,\n    TotalValue,\n    TransactionTypes,\n    OriginalTenderType_s,\n    RefundTenderType_s,\n    ManagerOverrideId_s,\n    AlertSeverity,\n    MitreTechnique,\n    MitreTactic,\n    PlaybookTrigger,\n    RiskScore\n| order by Timestamp desc\n",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT5M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT5H",
+        "suppressionEnabled": false,
+        "tactics": [
+          "Collection"
+        ],
+        "techniques": [
+          "T1056.001"
+        ],
+        "alertRuleTemplateName": "a1b2c3d4-0002-4e5f-a002-000000000002",
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              {
+                "identifier": "FullName",
+                "columnName": "EmployeeID"
+              }
+            ]
+          }
+        ],
+        "customDetails": {
+          "PlaybookTrigger": "PlaybookTrigger",
+          "RiskScore": "RiskScore",
+          "TerminalID": "TerminalID"
+        },
+        "requiredDataConnectors": [
+          {
+            "connectorId": "RetailShield",
+            "dataTypes": [
+              "RetailShield_POS_CL"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

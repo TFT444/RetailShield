@@ -1,0 +1,76 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2022-11-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/a1b2c3d4-0013-4e5f-a013-000000000013')]",
+      "kind": "Scheduled",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "RetailShield - Privileged Role Assignment Detection",
+        "description": "Detects when a new privileged role (Global Admin, Security Admin, Privileged Role Admin, etc.) is assigned to any retail account. Analyses AuditLogs for role assignment events. MITRE T1098/T1078.",
+        "severity": "High",
+        "enabled": true,
+        "query": "// ============================================================\n// RetailShield — Privileged Role / Group Addition Detection Rule\n// MITRE ATT&CK : T1098 — Account Manipulation\n//                T1078 — Valid Accounts\n// Tactic       : Persistence, Privilege Escalation\n// Severity     : High\n// Frequency    : Every 5 minutes | Lookback: 15 minutes\n// Author       : Tanvir Farhad — ShieldTech Ltd, London\n// Reference    : Scattered Spider / UNC3944 Azure AD persistence via\n//                Global Admin role assignments in retail sector breaches\n// ============================================================\n\nlet LookbackPeriod = 15m;\n\n// ── High-privilege roles that should trigger an alert on assignment ───────────\nlet SensitiveRoles = dynamic([\n    \"Global Administrator\",\n    \"Privileged Role Administrator\",\n    \"Security Administrator\",\n    \"Exchange Administrator\",\n    \"SharePoint Administrator\",\n    \"Hybrid Identity Administrator\",\n    \"Application Administrator\",\n    \"Cloud Application Administrator\",\n    \"Authentication Administrator\",\n    \"User Administrator\"\n]);\n\n// ── Step 1: Direct role assignment to a user ─────────────────────────────────\nlet DirectRoleAddition =\n    AuditLogs\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where Category == \"RoleManagement\"\n    | where OperationName in (\n        \"Add member to role\",\n        \"Add eligible member to role\",\n        \"Add scoped member to role\"\n    )\n    | extend\n        InitiatedByUser   = tostring(InitiatedBy.user.userPrincipalName),\n        InitiatedByApp    = tostring(InitiatedBy.app.displayName),\n        TargetUser        = tostring(TargetResources[0].userPrincipalName),\n        RoleDisplayName   = tostring(TargetResources[1].displayName)\n    | where RoleDisplayName in (SensitiveRoles)\n    | extend ThreatSignal = \"SensitiveRoleAssigned\";\n\n// ── Step 2: Role assignment outside business hours ────────────────────────────\nlet AfterHoursRoleAddition =\n    AuditLogs\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where Category == \"RoleManagement\"\n    | where OperationName has \"Add member to role\"\n    | extend HourOfDay = hourofday(TimeGenerated)\n    | where HourOfDay < 7 or HourOfDay >= 20\n    | extend\n        InitiatedByUser = tostring(InitiatedBy.user.userPrincipalName),\n        TargetUser      = tostring(TargetResources[0].userPrincipalName),\n        RoleDisplayName = tostring(TargetResources[1].displayName)\n    | extend ThreatSignal = \"AfterHoursRoleAddition\";\n\n// ── Step 3: Role addition followed immediately by new MFA method registration ─\nlet RoleAdditionWithMFAChange =\n    DirectRoleAddition\n    | join kind=inner (\n        AuditLogs\n        | where ingestion_time() > ago(LookbackPeriod)\n        | where Category == \"UserManagement\"\n        | where OperationName has_any (\n            \"User registered security info\",\n            \"User changed default security info\",\n            \"User deleted security info\",\n            \"User registered all required security info\"\n        )\n        | extend MFAUser = tostring(TargetResources[0].userPrincipalName)\n        | project MFAUser, MFAChangeTime = TimeGenerated, MFAOperation = OperationName\n    ) on $left.TargetUser == $right.MFAUser\n    | where MFAChangeTime > TimeGenerated\n        and MFAChangeTime < TimeGenerated + 30m      // MFA change within 30 min of role grant\n    | extend ThreatSignal = \"RoleAdditionFollowedByMFAChange\";\n\n// ── Step 4: Sensitive group membership addition ───────────────────────────────\nlet SensitiveGroupAddition =\n    AuditLogs\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where Category == \"GroupManagement\"\n    | where OperationName == \"Add member to group\"\n    | extend\n        GroupName       = tostring(TargetResources[0].displayName),\n        AddedUser       = tostring(TargetResources[1].userPrincipalName),\n        InitiatedByUser = tostring(InitiatedBy.user.userPrincipalName)\n    | where GroupName has_any (\n        \"Domain Admins\", \"Enterprise Admins\", \"Schema Admins\",\n        \"Exchange Organization Admins\", \"Organization Management\",\n        \"IT Admins\", \"Security Operations\", \"SOC\"\n    )\n    | extend ThreatSignal = \"SensitiveGroupMemberAdded\";\n\n// ── Step 5: Union all signals ─────────────────────────────────────────────────\nunion\n    (DirectRoleAddition\n        | extend GroupName = \"\", AddedUser = TargetUser,\n                 HourOfDay = hourofday(TimeGenerated),\n                 MFAOperation = \"\", MFAChangeTime = datetime(null)),\n    (AfterHoursRoleAddition\n        | extend GroupName = \"\", AddedUser = TargetUser,\n                 MFAOperation = \"\", MFAChangeTime = datetime(null)),\n    (RoleAdditionWithMFAChange\n        | extend GroupName = \"\", AddedUser = TargetUser,\n                 HourOfDay = hourofday(TimeGenerated)),\n    (SensitiveGroupAddition\n        | extend RoleDisplayName = GroupName, TargetUser = AddedUser,\n                 HourOfDay = hourofday(TimeGenerated),\n                 MFAOperation = \"\", MFAChangeTime = datetime(null))\n| extend\n    AlertSeverity   = \"High\",\n    MitreTechnique  = \"T1098, T1078\",\n    MitreTactic     = \"Persistence, Privilege Escalation\",\n    PlaybookTrigger = \"notify_soc\",\n    RiskScore       = 85\n| project\n    Timestamp        = TimeGenerated,\n    InitiatedByUser,\n    TargetUser,\n    RoleDisplayName,\n    ThreatSignal,\n    HourOfDay,\n    MFAOperation,\n    AlertSeverity,\n    MitreTechnique,\n    MitreTactic,\n    PlaybookTrigger,\n    RiskScore\n| order by Timestamp desc\n",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT5M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT5H",
+        "suppressionEnabled": false,
+        "tactics": [
+          "Persistence",
+          "PrivilegeEscalation"
+        ],
+        "techniques": [
+          "T1098",
+          "T1078"
+        ],
+        "alertRuleTemplateName": "a1b2c3d4-0013-4e5f-a013-000000000013",
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              {
+                "identifier": "FullName",
+                "columnName": "TargetUPN"
+              }
+            ]
+          },
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              {
+                "identifier": "FullName",
+                "columnName": "InitiatedByUPN"
+              }
+            ]
+          }
+        ],
+        "customDetails": {
+          "PlaybookTrigger": "PlaybookTrigger",
+          "RiskScore": "RiskScore",
+          "RoleAssigned": "RoleAssigned"
+        },
+        "requiredDataConnectors": [
+          {
+            "connectorId": "RetailShield",
+            "dataTypes": [
+              "AuditLogs"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
