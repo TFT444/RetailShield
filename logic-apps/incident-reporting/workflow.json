@@ -1,0 +1,263 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": { "description": "Microsoft Sentinel Log Analytics workspace name" }
+    },
+    "logicAppName": {
+      "type": "string",
+      "defaultValue": "RetailShield-UKIncidentReporting",
+      "metadata": { "description": "Name of the Logic App" }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": { "description": "Azure region for the Logic App" }
+    },
+    "complianceContactEmail": {
+      "type": "string",
+      "metadata": {
+        "description": "Email address of your organisation's designated compliance or security contact. This is the ONLY address this playbook sends to — never a government address."
+      }
+    },
+    "organisationName": {
+      "type": "string",
+      "defaultValue": "RetailShield Operator",
+      "metadata": { "description": "Your organisation name, included in the draft report header." }
+    }
+  },
+  "variables": {
+    "sentinelConnectionName": "azuresentinel",
+    "office365ConnectionName": "office365"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('sentinelConnectionName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "displayName": "Microsoft Sentinel",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/azuresentinel')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('office365ConnectionName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "displayName": "Office 365 — Compliance Notifications",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/office365')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('logicAppName')]",
+      "location": "[parameters('location')]",
+      "identity": { "type": "SystemAssigned" },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', variables('sentinelConnectionName'))]",
+        "[resourceId('Microsoft.Web/connections', variables('office365ConnectionName'))]"
+      ],
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": { "defaultValue": {}, "type": "Object" },
+            "complianceContactEmail": { "defaultValue": "", "type": "String" },
+            "organisationName": { "defaultValue": "Retail Organisation", "type": "String" }
+          },
+          "triggers": {
+            "Microsoft_Sentinel_incident": {
+              "type": "ApiConnectionWebhook",
+              "inputs": {
+                "body": { "callback_url": "@{listCallbackUrl()}" },
+                "host": {
+                  "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" }
+                },
+                "path": "/incident-creation"
+              }
+            }
+          },
+          "actions": {
+            "Check_severity": {
+              "type": "If",
+              "expression": {
+                "or": [
+                  { "equals": ["@triggerBody()?['object']?['properties']?['severity']", "High"] },
+                  { "equals": ["@triggerBody()?['object']?['properties']?['severity']", "Critical"] }
+                ]
+              },
+              "actions": {
+                "Get_incident_entities": {
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "body": "@triggerBody()",
+                    "host": {
+                      "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" }
+                    },
+                    "method": "post",
+                    "path": "/Incidents/subscriptions/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['SubscriptionId'])}/resourceGroups/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['ResourceGroupName'])}/workspaces/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['WorkspaceName'])}/incidents/@{encodeURIComponent(triggerBody()?['object']?['properties']?['incidentNumber'])}/entities"
+                  },
+                  "runAfter": {}
+                },
+                "Filter_account_entities": {
+                  "type": "Query",
+                  "inputs": {
+                    "from": "@body('Get_incident_entities')?['entities']",
+                    "where": "@equals(item()?['kind'], 'Account')"
+                  },
+                  "runAfter": { "Get_incident_entities": ["Succeeded"] }
+                },
+                "Filter_host_entities": {
+                  "type": "Query",
+                  "inputs": {
+                    "from": "@body('Get_incident_entities')?['entities']",
+                    "where": "@equals(item()?['kind'], 'Host')"
+                  },
+                  "runAfter": { "Get_incident_entities": ["Succeeded"] }
+                },
+                "Filter_ip_entities": {
+                  "type": "Query",
+                  "inputs": {
+                    "from": "@body('Get_incident_entities')?['entities']",
+                    "where": "@equals(item()?['kind'], 'Ip')"
+                  },
+                  "runAfter": { "Get_incident_entities": ["Succeeded"] }
+                },
+                "Select_account_names": {
+                  "type": "Select",
+                  "inputs": {
+                    "from": "@body('Filter_account_entities')",
+                    "select": "@coalesce(item()?['properties']?['upn'], item()?['properties']?['accountName'], 'Unknown Account')"
+                  },
+                  "runAfter": { "Filter_account_entities": ["Succeeded"] }
+                },
+                "Select_host_names": {
+                  "type": "Select",
+                  "inputs": {
+                    "from": "@body('Filter_host_entities')",
+                    "select": "@coalesce(item()?['properties']?['hostName'], item()?['properties']?['dnsDomain'], 'Unknown Host')"
+                  },
+                  "runAfter": { "Filter_host_entities": ["Succeeded"] }
+                },
+                "Select_ip_addresses": {
+                  "type": "Select",
+                  "inputs": {
+                    "from": "@body('Filter_ip_entities')",
+                    "select": "@coalesce(item()?['properties']?['address'], 'Unknown IP')"
+                  },
+                  "runAfter": { "Filter_ip_entities": ["Succeeded"] }
+                },
+                "Compose_detection_time": {
+                  "type": "Compose",
+                  "inputs": "@formatDateTime(triggerBody()?['object']?['properties']?['createdTimeUtc'], 'dd/MM/yyyy HH:mm')",
+                  "runAfter": { "Get_incident_entities": ["Succeeded"] }
+                },
+                "Compose_24h_deadline": {
+                  "type": "Compose",
+                  "inputs": "@formatDateTime(addHours(triggerBody()?['object']?['properties']?['createdTimeUtc'], 24), 'dd/MM/yyyy HH:mm')",
+                  "runAfter": { "Get_incident_entities": ["Succeeded"] }
+                },
+                "Compose_72h_deadline": {
+                  "type": "Compose",
+                  "inputs": "@formatDateTime(addHours(triggerBody()?['object']?['properties']?['createdTimeUtc'], 72), 'dd/MM/yyyy HH:mm')",
+                  "runAfter": { "Get_incident_entities": ["Succeeded"] }
+                },
+                "Compose_email_subject": {
+                  "type": "Compose",
+                  "inputs": "[ACTION REQUIRED] Critical Security Incident — UK Regulatory Notification Due by @{outputs('Compose_24h_deadline')} UTC — @{triggerBody()?['object']?['properties']?['title']}",
+                  "runAfter": {
+                    "Select_account_names": ["Succeeded"],
+                    "Select_host_names": ["Succeeded"],
+                    "Select_ip_addresses": ["Succeeded"],
+                    "Compose_detection_time": ["Succeeded"],
+                    "Compose_24h_deadline": ["Succeeded"],
+                    "Compose_72h_deadline": ["Succeeded"]
+                  }
+                },
+                "Compose_email_body": {
+                  "type": "Compose",
+                  "inputs": "<html><body style='font-family:Arial,sans-serif;color:#222;max-width:800px;margin:auto;padding:20px'><div style='background:#c00000;color:#fff;padding:16px 20px;border-radius:4px'><h2 style='margin:0'>&#9888; CRITICAL SECURITY INCIDENT &#8212; UK REGULATORY NOTIFICATION REQUIRED</h2></div><br/><div style='background:#fff3cd;border:1px solid #ffc107;padding:12px 16px;border-radius:4px;margin-bottom:20px'><strong>&#9888; IMPORTANT &#8212; HUMAN REVIEW REQUIRED:</strong> This draft was generated automatically by the RetailShield UK Incident Reporting playbook. A qualified person must review, verify, and submit via the official channels below. This system does <u>NOT</u> auto-submit to any government body. Submitting inaccurate reports to regulators carries independent legal risk.</div><h3>Incident Summary</h3><table style='width:100%;border-collapse:collapse;border:1px solid #ddd'><tr style='background:#f5f5f5'><td style='padding:8px 12px;font-weight:bold;width:36%'>Organisation</td><td style='padding:8px 12px'>@{parameters('organisationName')}</td></tr><tr><td style='padding:8px 12px;font-weight:bold'>Incident Title</td><td style='padding:8px 12px'>@{triggerBody()?['object']?['properties']?['title']}</td></tr><tr style='background:#f5f5f5'><td style='padding:8px 12px;font-weight:bold'>Incident Number</td><td style='padding:8px 12px'>#@{triggerBody()?['object']?['properties']?['incidentNumber']}</td></tr><tr><td style='padding:8px 12px;font-weight:bold'>Severity</td><td style='padding:8px 12px;color:#c00000'><strong>@{triggerBody()?['object']?['properties']?['severity']}</strong></td></tr><tr style='background:#f5f5f5'><td style='padding:8px 12px;font-weight:bold'>Detection Time (UTC)</td><td style='padding:8px 12px'>@{outputs('Compose_detection_time')} UTC</td></tr><tr><td style='padding:8px 12px;font-weight:bold'>Current Status</td><td style='padding:8px 12px'>@{triggerBody()?['object']?['properties']?['status']}</td></tr><tr style='background:#f5f5f5'><td style='padding:8px 12px;font-weight:bold'>MITRE Technique</td><td style='padding:8px 12px'>@{coalesce(triggerBody()?['object']?['properties']?['additionalData']?['customDetails']?['MitreTechnique'], 'See incident details in Sentinel')}</td></tr><tr><td style='padding:8px 12px;font-weight:bold'>Affected Accounts</td><td style='padding:8px 12px'>@{if(equals(length(body('Select_account_names')), 0), 'None identified at this time', join(body('Select_account_names'), ', '))}</td></tr><tr style='background:#f5f5f5'><td style='padding:8px 12px;font-weight:bold'>Affected Hosts / Devices</td><td style='padding:8px 12px'>@{if(equals(length(body('Select_host_names')), 0), 'None identified at this time', join(body('Select_host_names'), ', '))}</td></tr><tr><td style='padding:8px 12px;font-weight:bold'>Source IP Addresses</td><td style='padding:8px 12px'>@{if(equals(length(body('Select_ip_addresses')), 0), 'None identified at this time', join(body('Select_ip_addresses'), ', '))}</td></tr></table><br/><div style='background:#c00000;color:#fff;padding:10px 16px;border-radius:4px'><h3 style='margin:0'>&#9203; Regulatory Deadlines</h3></div><table style='width:100%;border-collapse:collapse;border:1px solid #ddd;margin-top:0'><tr style='background:#fff3cd'><td style='padding:10px 12px;font-weight:bold'>24-Hour Early Warning</td><td style='padding:10px 12px'>Cyber Security and Resilience Bill (early notification duty)</td><td style='padding:10px 12px;color:#c00000;white-space:nowrap'><strong>@{outputs('Compose_24h_deadline')} UTC</strong></td></tr><tr style='background:#ffe0e0'><td style='padding:10px 12px;font-weight:bold'>72-Hour Full Report</td><td style='padding:10px 12px'>UK GDPR Article 33 / ICO breach notification</td><td style='padding:10px 12px;color:#c00000;white-space:nowrap'><strong>@{outputs('Compose_72h_deadline')} UTC</strong></td></tr></table><br/><hr/><h3>Draft Incident Report &#8212; Pre-filled for Review</h3><p style='color:#888;font-size:13px'>Fields marked [REVIEWER] require human input before submission. Do not submit with placeholders.</p><div style='background:#f9f9f9;border:1px solid #ddd;padding:16px 20px;border-radius:4px'><p><strong>1. Nature of the incident</strong><br/>A @{triggerBody()?['object']?['properties']?['severity']}-severity cyber security incident was detected on @{outputs('Compose_detection_time')} UTC by the RetailShield automated threat detection system operating within Microsoft Sentinel. The incident is classified as: <em>@{triggerBody()?['object']?['properties']?['title']}</em>.</p><p><strong>2. Date and time the incident was detected</strong><br/>@{outputs('Compose_detection_time')} UTC (Sentinel incident #@{triggerBody()?['object']?['properties']?['incidentNumber']} created).</p><p><strong>3. Systems and/or data potentially affected</strong><br/>The following assets were identified: Accounts &#8212; @{if(equals(length(body('Select_account_names')), 0), 'none identified at this time', join(body('Select_account_names'), ', '))}. Hosts/Devices &#8212; @{if(equals(length(body('Select_host_names')), 0), 'none identified at this time', join(body('Select_host_names'), ', '))}. <strong>[REVIEWER: confirm which systems and categories of personal data may be affected. Do not submit until verified.]</strong></p><p><strong>4. Estimated number of individuals affected</strong><br/><strong>[REVIEWER: to be determined &#8212; do not estimate. Consult your Data Protection Officer.]</strong></p><p><strong>5. Likely consequences of the breach</strong><br/><strong>[REVIEWER: describe the likely impact based on the incident type, data categories involved, and current evidence. Do not speculate beyond what evidence supports.]</strong></p><p><strong>6. Measures taken or proposed to address the breach</strong><br/>Automated detection and initial containment actions have been triggered by the RetailShield SOAR platform. Current incident status in Microsoft Sentinel: @{triggerBody()?['object']?['properties']?['status']}. <strong>[REVIEWER: describe specific containment steps taken &#8212; system isolation, credential resets, customer notification status, forensic investigation steps initiated, etc.]</strong></p><p><strong>7. Current status of the investigation</strong><br/>Investigation ongoing as of @{outputs('Compose_detection_time')} UTC. Microsoft Sentinel incident #@{triggerBody()?['object']?['properties']?['incidentNumber']} remains active. <strong>[REVIEWER: update with current status at time of actual submission.]</strong></p></div><br/><hr/><h3>Official Reporting Channels</h3><p><strong>You must submit via these official portals. Do not reply to this email.</strong></p><table style='width:100%;border-collapse:collapse'><tr style='background:#f5f5f5'><td style='padding:10px 12px;font-weight:bold'>ICO &#8212; Personal data / GDPR breaches</td><td style='padding:10px 12px'><a href='https://ico.org.uk/for-organisations/report-a-breach/'>https://ico.org.uk/for-organisations/report-a-breach/</a></td></tr><tr><td style='padding:10px 12px;font-weight:bold'>NCSC &#8212; Cyber incidents</td><td style='padding:10px 12px'><a href='https://www.ncsc.gov.uk/section/about-this-website/incident-management'>https://www.ncsc.gov.uk/section/about-this-website/incident-management</a></td></tr></table><br/><hr/><p style='color:#888;font-size:12px'>This notification was generated automatically by the RetailShield UK Incident Reporting playbook in response to Microsoft Sentinel incident #@{triggerBody()?['object']?['properties']?['incidentNumber']}. It is an advisory and drafting tool only. Always apply human judgement and legal advice before filing regulatory reports. Incorrect or premature submissions may have independent legal consequences.</p></body></html>",
+                  "runAfter": { "Compose_email_subject": ["Succeeded"] }
+                },
+                "Send_compliance_email": {
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "host": {
+                      "connection": { "name": "@parameters('$connections')['office365']['connectionId']" }
+                    },
+                    "method": "post",
+                    "path": "/Mail",
+                    "body": {
+                      "To": "@parameters('complianceContactEmail')",
+                      "Subject": "@{outputs('Compose_email_subject')}",
+                      "Body": "@{outputs('Compose_email_body')}",
+                      "Importance": "High",
+                      "IsHtml": true
+                    }
+                  },
+                  "runAfter": { "Compose_email_body": ["Succeeded"] }
+                },
+                "Add_comment_to_incident": {
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "body": {
+                      "message": "<p><strong>&#128203; UK Compliance Notification Generated</strong></p><p>The RetailShield UK Incident Reporting playbook has been triggered for this High/Critical severity incident.</p><ul><li><strong>Draft report emailed to:</strong> designated compliance contact</li><li><strong>24-hour early-warning deadline (Cyber Security and Resilience Bill):</strong> @{outputs('Compose_24h_deadline')} UTC</li><li><strong>72-hour full-report deadline (UK GDPR / ICO):</strong> @{outputs('Compose_72h_deadline')} UTC</li></ul><p><em>&#9888; Action required: the compliance contact must review the draft report and submit via official channels if the incident is legally reportable. This playbook does NOT auto-file with any regulator.</em></p><p>Official channels: ICO (https://ico.org.uk/for-organisations/report-a-breach/) | NCSC (https://www.ncsc.gov.uk/section/about-this-website/incident-management)</p>"
+                    },
+                    "host": {
+                      "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" }
+                    },
+                    "method": "post",
+                    "path": "/Incidents/subscriptions/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['SubscriptionId'])}/resourceGroups/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['ResourceGroupName'])}/workspaces/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['WorkspaceName'])}/incidents/@{encodeURIComponent(triggerBody()?['object']?['properties']?['incidentNumber'])}/comments"
+                  },
+                  "runAfter": { "Send_compliance_email": ["Succeeded", "Failed"] }
+                }
+              },
+              "else": { "actions": {} },
+              "runAfter": {}
+            }
+          }
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azuresentinel": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('sentinelConnectionName'))]",
+                "connectionName": "[variables('sentinelConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/azuresentinel')]"
+              },
+              "office365": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('office365ConnectionName'))]",
+                "connectionName": "[variables('office365ConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/office365')]"
+              }
+            }
+          },
+          "complianceContactEmail": { "value": "[parameters('complianceContactEmail')]" },
+          "organisationName": { "value": "[parameters('organisationName')]" }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "logicAppResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Logic/workflows', parameters('logicAppName'))]"
+    },
+    "principalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Logic/workflows', parameters('logicAppName')), '2019-05-01', 'Full').identity.principalId]"
+    }
+  }
+}
