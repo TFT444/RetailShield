@@ -1,0 +1,231 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources."
+      }
+    }
+  },
+  "variables": {
+    "connectorId": "RetailShield",
+    "connectorVersion": "1.0.0"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/tables",
+      "apiVersion": "2022-10-01",
+      "name": "[concat(parameters('workspaceName'), '/RetailShield_POS_CL')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "schema": {
+          "name": "RetailShield_POS_CL",
+          "columns": [
+            {
+              "name": "TimeGenerated",
+              "type": "datetime",
+              "description": "Timestamp when the POS event was ingested into the workspace."
+            },
+            {
+              "name": "TerminalID",
+              "type": "string",
+              "description": "Unique identifier of the POS terminal that generated the event."
+            },
+            {
+              "name": "StoreID",
+              "type": "string",
+              "description": "Retail store identifier."
+            },
+            {
+              "name": "EmployeeID",
+              "type": "string",
+              "description": "Operator or cashier identifier performing the transaction."
+            },
+            {
+              "name": "OperatorID",
+              "type": "string",
+              "description": "Supervisor or override operator identifier (used for void/refund authorisation)."
+            },
+            {
+              "name": "TransactionType",
+              "type": "string",
+              "description": "Type of POS transaction: Sale, Void, Refund, GiftCardIssue, GiftCardReload, GiftCardRedeem, NoSale."
+            },
+            {
+              "name": "TransactionAmount",
+              "type": "real",
+              "description": "Transaction value in GBP."
+            },
+            {
+              "name": "TransactionCount",
+              "type": "int",
+              "description": "Number of transactions within the aggregation window."
+            },
+            {
+              "name": "PaymentMethod",
+              "type": "string",
+              "description": "Payment method: Cash, Card, GiftCard, ContactlessMobile."
+            },
+            {
+              "name": "CardLast4",
+              "type": "string",
+              "description": "Last 4 digits of payment card (if applicable, for correlation only)."
+            },
+            {
+              "name": "GiftCardID",
+              "type": "string",
+              "description": "Gift card identifier (for gift card transaction types)."
+            },
+            {
+              "name": "TotalGiftCardValue",
+              "type": "real",
+              "description": "Aggregated value of gift card transactions within the detection window."
+            },
+            {
+              "name": "VoidCount",
+              "type": "int",
+              "description": "Number of void transactions by the operator in the lookback window."
+            },
+            {
+              "name": "RefundCount",
+              "type": "int",
+              "description": "Number of refund transactions by the operator in the lookback window."
+            },
+            {
+              "name": "EventType",
+              "type": "string",
+              "description": "RetailShield event classification: pos_void_refund, gift_card_fraud, pos_no_sale."
+            },
+            {
+              "name": "RiskScore",
+              "type": "int",
+              "description": "RetailShield risk score 0-100; higher values indicate greater anomaly confidence."
+            },
+            {
+              "name": "SignalName",
+              "type": "string",
+              "description": "RetailShield detection signal that triggered this record."
+            },
+            {
+              "name": "PlaybookTrigger",
+              "type": "string",
+              "description": "Recommended playbook to invoke: notify_soc, suspend_terminal, block_ip."
+            },
+            {
+              "name": "SourceSystem",
+              "type": "string",
+              "description": "Source system tag — always 'RetailShield-POS' for this table."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/tables",
+      "apiVersion": "2022-10-01",
+      "name": "[concat(parameters('workspaceName'), '/RetailShield_Logs_CL')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "schema": {
+          "name": "RetailShield_Logs_CL",
+          "columns": [
+            {
+              "name": "TimeGenerated",
+              "type": "datetime",
+              "description": "Timestamp when the log event was ingested into the workspace."
+            },
+            {
+              "name": "EventType",
+              "type": "string",
+              "description": "RetailShield event classification: voice_fraud, pos_anomaly, network_anomaly."
+            },
+            {
+              "name": "DeviceName",
+              "type": "string",
+              "description": "Hostname of the device generating the log event."
+            },
+            {
+              "name": "TerminalID",
+              "type": "string",
+              "description": "POS terminal identifier (for POS-related log events)."
+            },
+            {
+              "name": "StoreID",
+              "type": "string",
+              "description": "Retail store identifier."
+            },
+            {
+              "name": "CallerID",
+              "type": "string",
+              "description": "Caller identifier or phone number (for voice fraud events)."
+            },
+            {
+              "name": "CallCount",
+              "type": "int",
+              "description": "Number of calls from the CallerID within the detection window."
+            },
+            {
+              "name": "CallDurationSeconds",
+              "type": "int",
+              "description": "Total or average call duration in seconds."
+            },
+            {
+              "name": "VoiceAnomalyScore",
+              "type": "real",
+              "description": "AI-derived anomaly score for voice pattern analysis (0.0–1.0)."
+            },
+            {
+              "name": "ProcessName",
+              "type": "string",
+              "description": "Process name involved in POS anomaly events."
+            },
+            {
+              "name": "ProcessCommandLine",
+              "type": "string",
+              "description": "Process command line for POS anomaly events."
+            },
+            {
+              "name": "NetworkDestination",
+              "type": "string",
+              "description": "Destination IP or hostname for network anomaly events."
+            },
+            {
+              "name": "BytesSent",
+              "type": "long",
+              "description": "Bytes sent to network destination."
+            },
+            {
+              "name": "RiskScore",
+              "type": "int",
+              "description": "RetailShield risk score 0-100."
+            },
+            {
+              "name": "SignalName",
+              "type": "string",
+              "description": "RetailShield detection signal that triggered this record."
+            },
+            {
+              "name": "PlaybookTrigger",
+              "type": "string",
+              "description": "Recommended playbook to invoke."
+            },
+            {
+              "name": "SourceSystem",
+              "type": "string",
+              "description": "Source system tag — always 'RetailShield-Logs' for this table."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
