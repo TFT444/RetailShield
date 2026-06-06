@@ -1,0 +1,75 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2022-11-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/a1b2c3d4-0004-4e5f-a004-000000000004')]",
+      "kind": "Scheduled",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "RetailShield - Data Exfiltration via Alternative Protocol",
+        "description": "Detects large-volume outbound data transfers from retail endpoints to external destinations, especially from known threat-intel IPs in RetailIOCWatchlist. Correlates DeviceNetworkEvents and DeviceFileEvents. MITRE T1048.",
+        "severity": "Critical",
+        "enabled": true,
+        "query": "// ============================================================\n// RetailShield — Data Exfiltration Detection Rule\n// MITRE ATT&CK : T1048 — Exfiltration Over Alternative Protocol\n// Tactic       : Exfiltration\n// Severity     : Critical\n// Frequency    : Every 5 minutes | Lookback: 60 minutes\n// Author       : Tanvir Farhad — ShieldTech Ltd, London\n// Reference    : Nike third-party breach (2018) — 1.4 TB customer & IP data exposed\n// ============================================================\n\nlet LookbackPeriod       = 60m;\nlet DNSQueryThresh       = 200;   // DNS queries to single domain within lookback\nlet SubdomainLenThresh   = 40;    // characters — flags long encoded subdomains\nlet OutboundMBThresh     = 100;   // MB transferred outbound to single external IP\nlet StagingFileThresh    = 50;    // bulk file reads before outbound connection\n\n// ── IOCs from Sentinel watchlist ────────────────────────────────────────────\nlet ExfilIOCs = (\n    _GetWatchlist(\"RetailIOCWatchlist\")\n    | where Type in (\"Domain\", \"IP\")\n    | project IOCValue = tolower(Value), IOCType = Type\n);\n\n// ── Step 1: DNS tunneling — high-volume queries with long encoded subdomains ─\nlet DNSTunneling =\n    DeviceNetworkEvents\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where ActionType == \"ConnectionSuccess\"\n    | where RemotePort == 53\n    | where isnotempty(RemoteUrl)\n    | extend\n        SubdomainPart = tostring(split(tolower(RemoteUrl), \".\")[-3]),  // label before apex\n        DomainApex    = strcat(\n                            tostring(split(tolower(RemoteUrl), \".\")[-2]),\n                            \".\",\n                            tostring(split(tolower(RemoteUrl), \".\")[-1])\n                        )\n    | where strlen(SubdomainPart) >= SubdomainLenThresh\n        or RemoteUrl matches regex @\"[a-z0-9]{32,}\"  // hex/base32 encoded chunks\n    | summarize\n        QueryCount      = count(),\n        UniqueSubdomains = dcount(RemoteUrl),\n        SampleQueries   = make_set(RemoteUrl, 5),\n        FirstSeen       = min(Timestamp),\n        LastSeen        = max(Timestamp)\n        by DeviceId, DeviceName, DomainApex\n    | where QueryCount >= DNSQueryThresh or UniqueSubdomains >= 50\n    | extend ThreatSignal = \"DNSTunneling\";\n\n// ── Step 2: Large outbound transfer over non-standard port ───────────────────\nlet LargeOutboundTransfer =\n    DeviceNetworkEvents\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where ActionType == \"ConnectionSuccess\"\n    | where isnotempty(RemoteIP)\n    | where RemoteIP !startswith \"10.\"\n        and RemoteIP !startswith \"192.168.\"\n        and RemoteIP !startswith \"172.\"\n        and RemoteIP != \"127.0.0.1\"\n    | where RemotePort !in (80, 443, 8080, 8443)         // exclude standard web\n    | where SentBytes > 0\n    | summarize\n        TotalSentBytes  = sum(SentBytes),\n        ConnectionCount = count(),\n        PortsUsed       = make_set(RemotePort, 5),\n        FirstSeen       = min(Timestamp),\n        LastSeen        = max(Timestamp)\n        by DeviceId, DeviceName, RemoteIP\n    | extend TotalSentMB = TotalSentBytes / (1024 * 1024)\n    | where TotalSentMB >= OutboundMBThresh\n    | extend ThreatSignal = \"LargeOutboundTransfer\";\n\n// ── Step 3: IOC-matched exfiltration domain / IP ────────────────────────────\nlet IOCMatchedExfil =\n    DeviceNetworkEvents\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where ActionType == \"ConnectionSuccess\"\n    | where isnotempty(RemoteUrl) or isnotempty(RemoteIP)\n    | extend NormalisedTarget = tolower(coalesce(RemoteUrl, RemoteIP))\n    | join kind=inner (ExfilIOCs)\n        on $left.NormalisedTarget == $right.IOCValue\n    | summarize\n        HitCount    = count(),\n        FirstSeen   = min(Timestamp),\n        LastSeen    = max(Timestamp)\n        by DeviceId, DeviceName, NormalisedTarget, IOCType\n    | extend ThreatSignal = \"IOCMatchedExfilTarget\";\n\n// ── Step 4: Data staging — bulk file reads followed by external connection ───\nlet BulkFileReads =\n    DeviceFileEvents\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where ActionType == \"FileRead\"\n    | where FolderPath has_any (\n        \"\\\\customers\\\\\", \"\\\\orders\\\\\", \"\\\\finance\\\\\",\n        \"\\\\payroll\\\\\",   \"\\\\hr\\\\\",     \"\\\\export\\\\\",\n        \"\\\\reports\\\\\",   \"\\\\backup\\\\\", \"\\\\archive\\\\\"\n    )\n    | summarize\n        FileReadCount   = count(),\n        UniqueFolders   = dcount(FolderPath),\n        SampleFiles     = make_set(FileName, 5),\n        StagingEnd      = max(Timestamp)\n        by DeviceId, DeviceName, AccountName;\n\nlet DataStagingToExfil =\n    BulkFileReads\n    | where FileReadCount >= StagingFileThresh\n    | join kind=inner (\n        DeviceNetworkEvents\n        | where ingestion_time() > ago(LookbackPeriod)\n        | where ActionType == \"ConnectionSuccess\"\n        | where RemoteIP !startswith \"10.\"\n            and RemoteIP !startswith \"192.168.\"\n            and RemoteIP !startswith \"172.\"\n            and RemoteIP != \"127.0.0.1\"\n        | where SentBytes > 0\n        | project DeviceId, ExfilTimestamp = Timestamp, RemoteIP, SentBytes\n    ) on DeviceId\n    | where ExfilTimestamp > StagingEnd                   // exfil after staging\n        and ExfilTimestamp < StagingEnd + 30m             // within 30 min window\n    | summarize\n        TotalSentBytes = sum(SentBytes),\n        ExfilTargets   = dcount(RemoteIP)\n        by DeviceId, DeviceName, AccountName, FileReadCount, UniqueFolders, SampleFiles\n    | extend ThreatSignal = \"DataStagingToExfil\";\n\n// ── Step 5: Union all signals and surface alerts ──────────────────────────────\nunion\n    (DNSTunneling\n        | extend AccountName = \"\", RemoteIP = \"\", TotalSentMB = 0.0,\n                 ConnectionCount = 0, FileReadCount = 0, SampleFiles = dynamic([]),\n                 UniqueFolders = 0, ExfilTargets = 0, TotalSentBytes = 0,\n                 NormalisedTarget = DomainApex),\n    (LargeOutboundTransfer\n        | extend AccountName = \"\", QueryCount = 0, UniqueSubdomains = 0,\n                 SampleQueries = dynamic([]), DomainApex = \"\",\n                 FileReadCount = 0, SampleFiles = dynamic([]),\n                 UniqueFolders = 0, ExfilTargets = 0, NormalisedTarget = RemoteIP),\n    (IOCMatchedExfil\n        | extend QueryCount = 0, UniqueSubdomains = 0, SampleQueries = dynamic([]),\n                 DomainApex = \"\", TotalSentMB = 0.0, ConnectionCount = 0,\n                 FileReadCount = 0, SampleFiles = dynamic([]),\n                 UniqueFolders = 0, ExfilTargets = 0, TotalSentBytes = 0,\n                 AccountName = \"\", RemoteIP = NormalisedTarget),\n    (DataStagingToExfil\n        | extend QueryCount = 0, UniqueSubdomains = 0, SampleQueries = dynamic([]),\n                 DomainApex = \"\", TotalSentMB = 0.0, ConnectionCount = 0,\n                 RemoteIP = \"\", NormalisedTarget = \"\",\n                 TotalSentBytes = tolong(TotalSentBytes))\n| extend\n    AlertSeverity   = \"Critical\",\n    MitreTechnique  = \"T1048\",\n    MitreTactic     = \"Exfiltration\",\n    PlaybookTrigger = \"data_exfil_contain\",\n    RiskScore       = 90\n| project\n    Timestamp       = coalesce(FirstSeen, StagingEnd),\n    DeviceName,\n    DeviceId,\n    AccountName,\n    ThreatSignal,\n    NormalisedTarget,\n    QueryCount,\n    UniqueSubdomains,\n    TotalSentMB,\n    TotalSentBytes,\n    FileReadCount,\n    SampleFiles,\n    UniqueFolders,\n    ExfilTargets,\n    AlertSeverity,\n    MitreTechnique,\n    MitreTactic,\n    PlaybookTrigger,\n    RiskScore\n| order by Timestamp desc\n",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT5M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT5H",
+        "suppressionEnabled": false,
+        "tactics": [
+          "Exfiltration"
+        ],
+        "techniques": [
+          "T1048"
+        ],
+        "alertRuleTemplateName": "a1b2c3d4-0004-4e5f-a004-000000000004",
+        "entityMappings": [
+          {
+            "entityType": "Host",
+            "fieldMappings": [
+              {
+                "identifier": "HostName",
+                "columnName": "DeviceName"
+              }
+            ]
+          },
+          {
+            "entityType": "IP",
+            "fieldMappings": [
+              {
+                "identifier": "Address",
+                "columnName": "RemoteIP"
+              }
+            ]
+          }
+        ],
+        "customDetails": {
+          "PlaybookTrigger": "PlaybookTrigger",
+          "RiskScore": "RiskScore",
+          "BytesSent": "BytesSent"
+        },
+        "requiredDataConnectors": [
+          {
+            "connectorId": "RetailShield",
+            "dataTypes": [
+              "DeviceNetworkEvents",
+              "DeviceFileEvents"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

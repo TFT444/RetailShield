@@ -1,0 +1,75 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2022-11-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/a1b2c3d4-0011-4e5f-a011-000000000011')]",
+      "kind": "Scheduled",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "RetailShield - Supply Chain / Third-Party Anomaly Detection",
+        "description": "Detects anomalous activity patterns originating from supplier-associated accounts or infrastructure, including unusual API calls, configuration changes, and access from unexpected locations. Correlates AzureDiagnostics and AuditLogs. MITRE T1195.",
+        "severity": "High",
+        "enabled": true,
+        "query": "// ============================================================\n// RetailShield — Supply Chain Anomaly Detection\n// Rule ID      : RS-SUP-001\n// MITRE ATT&CK : T1195 — Supply Chain Compromise\n// Tactic       : Initial Access\n// Severity     : High\n// Frequency    : Every 30 minutes | Lookback: 30 minutes\n// Author       : Tanvir Farhad — ShieldTech Ltd, London\n// ============================================================\n// Detects compromised or malicious supplier API behaviour\n// against the retail platform. Covers supplier keys accessing\n// admin endpoints, new service principals created by supplier\n// accounts, out-of-spec endpoint access, and mass data export.\n// Retail-specific: tracks supplier_api_key patterns tied to\n// logistics, payment, and stock management vendors.\n// ============================================================\n\nlet LookbackWindow       = 30m;\nlet BulkExportThreshold  = 1000;   // records exported above this is suspicious\nlet MinAnomalousRequests = 3;      // minimum out-of-spec requests before alert\n\n// Admin / privileged endpoints suppliers must never call\nlet AdminEndpoints = dynamic([\n    \"/admin\", \"/management\", \"/config\", \"/users\",\n    \"/audit\", \"/security\", \"/settings\", \"/permissions\"\n]);\n\n// Sensitive data endpoints — acceptable only for authorised internal accounts\nlet SensitiveEndpoints = dynamic([\n    \"/customers\", \"/export\", \"/payment\", \"/finance\",\n    \"/employees\", \"/cardholder\", \"/transactions\"\n]);\n\n// Endpoints that are part of the agreed supplier integration spec\nlet AgreeableEndpoints = dynamic([\n    \"/inventory\", \"/stock\", \"/orders\", \"/delivery\",\n    \"/products\", \"/shipment\", \"/tracking\", \"/catalogue\"\n]);\n\n// ── Signal 1 — Supplier API key accessing admin / privileged endpoints ────────\nlet SupplierAdminAccess =\n    AzureDiagnostics\n    | where ingestion_time() > ago(LookbackWindow)\n    | where ResourceType == \"APIMANAGEMENT/SERVICE\"\n    | extend APIKey   = tostring(column_ifexists(\"apimSubscriptionId_s\", \"\"))\n    | extend Endpoint = tostring(column_ifexists(\"requestPath_s\", \"\"))\n    | where APIKey startswith \"supplier_api_key\"\n    | where Endpoint has_any (AdminEndpoints)\n    | project\n        TimeGenerated,\n        SignalType   = \"SupplierAdminAccess\",\n        SupplierKey  = APIKey,\n        Endpoint,\n        Method       = tostring(column_ifexists(\"requestMethod_s\", \"\")),\n        StatusCode   = tostring(column_ifexists(\"responseCode_d\", \"\"));\n\n// ── Signal 2 — New Azure AD service principal created by supplier account ──────\nlet NewServicePrincipal =\n    AuditLogs\n    | where ingestion_time() > ago(LookbackWindow)\n    | where OperationName has_any (\"Add service principal\", \"Add application\")\n    | extend InitiatedBy  = tostring(InitiatedBy.user.userPrincipalName)\n    | where InitiatedBy has_any (\"supplier\", \"vendor\", \"partner\", \"api\", \"3rd-party\")\n        or InitiatedBy matches regex @\"svc_[a-z0-9]+@\"\n    | extend NewPrincipal = tostring(TargetResources[0].displayName)\n    | project\n        TimeGenerated,\n        SignalType   = \"NewServicePrincipal\",\n        SupplierKey  = InitiatedBy,\n        Endpoint     = NewPrincipal,\n        Method       = CorrelationId,\n        StatusCode   = \"\";\n\n// ── Signal 3 — Supplier accessing endpoints outside agreed integration spec ────\nlet UnauthorisedEndpointAccess =\n    AzureDiagnostics\n    | where ingestion_time() > ago(LookbackWindow)\n    | where ResourceType == \"APIMANAGEMENT/SERVICE\"\n    | extend APIKey   = tostring(column_ifexists(\"apimSubscriptionId_s\", \"\"))\n    | extend Endpoint = tostring(column_ifexists(\"requestPath_s\", \"\"))\n    | where APIKey startswith \"supplier_api_key\"\n    | where not(Endpoint has_any (AgreeableEndpoints))\n    | where Endpoint has_any (SensitiveEndpoints)\n    | summarize\n        AccessCount  = count(),\n        Endpoints    = make_set(Endpoint),\n        FirstSeen    = min(TimeGenerated),\n        LastSeen     = max(TimeGenerated)\n      by APIKey\n    | where AccessCount >= MinAnomalousRequests\n    | project\n        TimeGenerated = FirstSeen,\n        SignalType    = \"UnauthorisedEndpointAccess\",\n        SupplierKey   = APIKey,\n        Endpoint      = tostring(Endpoints),\n        Method        = \"\",\n        StatusCode    = tostring(AccessCount);\n\n// ── Signal 4 — Mass data export by supplier API key ──────────────────────────\nlet MassDataExport =\n    AzureDiagnostics\n    | where ingestion_time() > ago(LookbackWindow)\n    | where ResourceType == \"APIMANAGEMENT/SERVICE\"\n    | extend APIKey        = tostring(column_ifexists(\"apimSubscriptionId_s\", \"\"))\n    | extend Endpoint      = tostring(column_ifexists(\"requestPath_s\", \"\"))\n    | extend RecordsServed = toint(column_ifexists(\"responseBodyLength_d\", 0))\n    | where APIKey startswith \"supplier_api_key\"\n    | where Endpoint has_any (SensitiveEndpoints)\n    | summarize\n        TotalRecords  = sum(RecordsServed),\n        RequestCount  = count(),\n        Endpoints     = make_set(Endpoint)\n      by APIKey, bin(TimeGenerated, LookbackWindow)\n    | where TotalRecords >= BulkExportThreshold\n    | project\n        TimeGenerated,\n        SignalType    = \"MassDataExport\",\n        SupplierKey   = APIKey,\n        Endpoint      = tostring(Endpoints),\n        Method        = \"\",\n        StatusCode    = tostring(TotalRecords);\n\n// ── Union all signals ─────────────────────────────────────────────────────────\nunion SupplierAdminAccess, NewServicePrincipal, UnauthorisedEndpointAccess, MassDataExport\n| summarize\n    SignalCount  = count(),\n    Signals      = make_set(SignalType),\n    FirstSeen    = min(TimeGenerated),\n    LastSeen     = max(TimeGenerated),\n    SupplierKey  = take_any(SupplierKey),\n    Endpoints    = make_set(Endpoint)\n  by bin(TimeGenerated, LookbackWindow)\n| where SignalCount >= 1\n| extend\n    RiskScore       = case(SignalCount >= 3, 90, SignalCount == 2, 78, 60),\n    MitreTechnique  = \"T1195\",\n    MitreTactic     = \"Initial Access\",\n    AlertSeverity   = case(SignalCount >= 3, \"CRITICAL\", SignalCount == 2, \"HIGH\", \"MEDIUM\"),\n    Severity        = case(SignalCount >= 2, \"HIGH\", \"MEDIUM\"),\n    PlaybookTrigger = \"notify_soc\",\n    DeviceName      = \"API-GATEWAY\",\n    AlertTitle      = strcat(\"Supply Chain Anomaly — Supplier Behavioural Deviation: \", SupplierKey)\n| project\n    AlertTitle,\n    DeviceName,\n    SupplierKey,\n    AlertSeverity,\n    Severity,\n    RiskScore,\n    SignalCount,\n    Signals,\n    Endpoints,\n    MitreTechnique,\n    MitreTactic,\n    PlaybookTrigger,\n    FirstSeen,\n    LastSeen\n| sort by RiskScore desc\n",
+        "queryFrequency": "PT30M",
+        "queryPeriod": "PT30M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT5H",
+        "suppressionEnabled": false,
+        "tactics": [
+          "InitialAccess"
+        ],
+        "techniques": [
+          "T1195"
+        ],
+        "alertRuleTemplateName": "a1b2c3d4-0011-4e5f-a011-000000000011",
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              {
+                "identifier": "FullName",
+                "columnName": "InitiatedBy"
+              }
+            ]
+          },
+          {
+            "entityType": "IP",
+            "fieldMappings": [
+              {
+                "identifier": "Address",
+                "columnName": "CallerIpAddress"
+              }
+            ]
+          }
+        ],
+        "customDetails": {
+          "PlaybookTrigger": "PlaybookTrigger",
+          "RiskScore": "RiskScore",
+          "SupplierName": "SupplierName"
+        },
+        "requiredDataConnectors": [
+          {
+            "connectorId": "RetailShield",
+            "dataTypes": [
+              "AzureDiagnostics",
+              "AuditLogs"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2022-11-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/a1b2c3d4-0008-4e5f-a008-000000000008')]",
+      "kind": "Scheduled",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "RetailShield - Gift Card Fraud Pattern Detection",
+        "description": "Detects abnormal gift card issuance, reload, and redemption patterns at POS that are consistent with gift card fraud or money laundering. Analyses RetailShield_POS_CL for velocity and value anomalies. MITRE T1657.",
+        "severity": "High",
+        "enabled": true,
+        "query": "// ============================================================\n// RetailShield — Gift-Card / High-Velocity Refund Fraud\n// MITRE ATT&CK : T1657 — Financial Theft\n// Tactic       : Impact\n// Severity     : High\n// Frequency    : Every 5 minutes | Lookback: 30 minutes\n// Author       : Tanvir Farhad — ShieldTech Ltd, London\n// Reference    : Organised retail crime — gift card draining via stolen\n//                activations and refund abuse across multiple store locations\n// ============================================================\n\nlet LookbackPeriod        = 30m;\nlet GiftCardActivThresh   = 10;    // activations per terminal in window\nlet StructuringThreshold  = 200.0; // GBP — transactions just below this = structuring risk\nlet StructuringBand       = 20.0;  // GBP — tolerance band (180–200 = structured)\nlet MultiTerminalThresh   = 3;     // same card at N different terminals = suspicious\nlet DrainWindowMins       = 15;    // minutes — refund then re-activation window\n\n// ── Step 1: High-velocity gift card activations at a single terminal ──────────\nlet HighVelocityActivations =\n    RetailShield_POS_CL\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where TransactionType_s == \"GIFT_CARD_ACTIVATE\"\n    | where isnotempty(TerminalId_s)\n    | summarize\n        ActivationCount  = count(),\n        UniqueCards      = dcount(GiftCardNumber_s),\n        TotalValue       = sum(toreal(TransactionAmount_d)),\n        OperatorIDs      = make_set(OperatorId_s, 5),\n        EarliestTx       = min(TimeGenerated),\n        LatestTx         = max(TimeGenerated)\n        by TerminalId_s, StoreId_s, bin(TimeGenerated, 5m)\n    | where ActivationCount >= GiftCardActivThresh\n    | extend ThreatSignal = \"HighVelocityGiftCardActivation\";\n\n// ── Step 2: Structured transactions — purchases just below reporting threshold ─\nlet StructuredPurchases =\n    RetailShield_POS_CL\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where TransactionType_s in (\"GIFT_CARD_ACTIVATE\", \"GIFT_CARD_RELOAD\")\n    | extend TxAmount = toreal(TransactionAmount_d)\n    | where TxAmount >= (StructuringThreshold - StructuringBand)\n        and TxAmount < StructuringThreshold\n    | summarize\n        StructuredCount  = count(),\n        TotalValue       = sum(TxAmount),\n        UniqueCards      = dcount(GiftCardNumber_s),\n        TerminalIDs      = make_set(TerminalId_s, 5),\n        EarliestTx       = min(TimeGenerated),\n        LatestTx         = max(TimeGenerated)\n        by OperatorId_s, StoreId_s, bin(TimeGenerated, 5m)\n    | where StructuredCount >= 3                         // multiple structured tx = pattern\n    | extend ThreatSignal = \"StructuredGiftCardPurchase\";\n\n// ── Step 3: Drain-and-reload — refund then re-activation of same card ─────────\nlet DrainAndReload =\n    RetailShield_POS_CL\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where TransactionType_s == \"GIFT_CARD_REFUND\"\n    | where isnotempty(GiftCardNumber_s)\n    | join kind=inner (\n        RetailShield_POS_CL\n        | where ingestion_time() > ago(LookbackPeriod)\n        | where TransactionType_s == \"GIFT_CARD_ACTIVATE\"\n        | project\n            GiftCardNumber_s,\n            ReactivateTime   = TimeGenerated,\n            ReactivateStore  = StoreId_s,\n            ReactivateTerm   = TerminalId_s\n    ) on GiftCardNumber_s\n    | where ReactivateTime > TimeGenerated\n        and ReactivateTime < TimeGenerated + totimespan(strcat(tostring(DrainWindowMins), \"m\"))\n    | extend ThreatSignal = \"GiftCardDrainAndReload\";\n\n// ── Step 4: Same card used at multiple terminals in short window ──────────────\nlet MultiTerminalCard =\n    RetailShield_POS_CL\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where TransactionType_s in (\"GIFT_CARD_REDEEM\", \"GIFT_CARD_BALANCE_CHECK\")\n    | where isnotempty(GiftCardNumber_s)\n    | summarize\n        TerminalCount   = dcount(TerminalId_s),\n        StoreCount      = dcount(StoreId_s),\n        TerminalList    = make_set(TerminalId_s, 10),\n        TxCount         = count(),\n        EarliestTx      = min(TimeGenerated),\n        LatestTx        = max(TimeGenerated)\n        by GiftCardNumber_s, bin(TimeGenerated, 10m)\n    | where TerminalCount >= MultiTerminalThresh\n    | extend ThreatSignal = \"GiftCardMultiTerminalUse\";\n\n// ── Step 5: Union all signals ─────────────────────────────────────────────────\nunion\n    (HighVelocityActivations\n        | extend\n            GiftCardNumber_s = \"\", OperatorId_s = tostring(OperatorIDs[0]),\n            StructuredCount = ActivationCount, TerminalList = dynamic([]),\n            TerminalCount = 1, StoreCount = 1,\n            ReactivateStore = \"\", ReactivateTerm = \"\"),\n    (StructuredPurchases\n        | extend\n            GiftCardNumber_s = \"\", ActivationCount = StructuredCount,\n            UniqueCards = 0, TerminalList = dynamic([]),\n            TerminalCount = 1, StoreCount = 1,\n            ReactivateStore = \"\", ReactivateTerm = \"\",\n            TerminalId_s = tostring(TerminalIDs[0])),\n    (DrainAndReload\n        | extend\n            ActivationCount = 1, StructuredCount = 1,\n            UniqueCards = 1, TotalValue = toreal(TransactionAmount_d),\n            TerminalList = dynamic([]), TerminalCount = 1, StoreCount = 1,\n            OperatorId_s = \"\", EarliestTx = TimeGenerated, LatestTx = ReactivateTime),\n    (MultiTerminalCard\n        | extend\n            ActivationCount = TxCount, StructuredCount = TxCount,\n            UniqueCards = 1, TotalValue = 0.0,\n            OperatorId_s = \"\", TerminalId_s = \"\", StoreId_s = \"\",\n            ReactivateStore = \"\", ReactivateTerm = \"\")\n| extend\n    AlertSeverity   = \"High\",\n    MitreTechnique  = \"T1657\",\n    MitreTactic     = \"Impact\",\n    PlaybookTrigger = \"notify_soc\",\n    RiskScore       = 85\n| project\n    Timestamp        = coalesce(EarliestTx, TimeGenerated),\n    GiftCardNumber_s,\n    OperatorId_s,\n    StoreId_s,\n    TerminalId_s,\n    ThreatSignal,\n    ActivationCount,\n    UniqueCards,\n    TotalValue,\n    TerminalCount,\n    TerminalList,\n    AlertSeverity,\n    MitreTechnique,\n    MitreTactic,\n    PlaybookTrigger,\n    RiskScore\n| order by Timestamp desc\n",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT5M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT5H",
+        "suppressionEnabled": false,
+        "tactics": [
+          "Impact"
+        ],
+        "techniques": [
+          "T1657"
+        ],
+        "alertRuleTemplateName": "a1b2c3d4-0008-4e5f-a008-000000000008",
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              {
+                "identifier": "FullName",
+                "columnName": "OperatorID"
+              }
+            ]
+          }
+        ],
+        "customDetails": {
+          "PlaybookTrigger": "PlaybookTrigger",
+          "RiskScore": "RiskScore",
+          "TotalGiftCardValue": "TotalGiftCardValue"
+        },
+        "requiredDataConnectors": [
+          {
+            "connectorId": "RetailShield",
+            "dataTypes": [
+              "RetailShield_POS_CL"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

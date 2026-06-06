@@ -1,0 +1,74 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2022-11-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/a1b2c3d4-0003-4e5f-a003-000000000003')]",
+      "kind": "Scheduled",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "RetailShield - MFA Fatigue / Push Bombing Attack",
+        "description": "Detects repeated MFA push notification attempts against retail accounts, indicating an MFA fatigue (push bombing) attack. Correlates failed MFA events in SigninLogs. MITRE T1621.",
+        "severity": "High",
+        "enabled": true,
+        "query": "// ============================================================\n// RetailShield — MFA Fatigue / Push Bombing Detection Rule\n// MITRE ATT&CK : T1621 — Multi-Factor Authentication Request Generation\n// Tactic       : Credential Access\n// Severity     : High\n// Frequency    : Every 5 minutes | Lookback: 10 minutes\n// Author       : Tanvir Farhad — ShieldTech Ltd, London\n// Reference    : M&S / Co-op 2025 — Scattered Spider MFA fatigue technique\n// ============================================================\n\nlet LookbackPeriod    = 10m;\nlet MFAPromptThresh   = 10;   // MFA prompts within lookback before fatigue alert\nlet FatigueSuccThresh = 5;    // failed MFA attempts before a success counts as fatigue-driven\nlet MFAResultCodes    = dynamic([\"50074\", \"50076\", \"50079\"]); // MFA required / prompt codes\n\n// ── Step 1: High-velocity MFA prompt flood to a single account ───────────────\nlet MFAPromptFlood =\n    SigninLogs\n    | where ingestion_time() > ago(LookbackPeriod)\n    | where ResultType in (MFAResultCodes)\n    | where isnotempty(UserPrincipalName)\n    | summarize\n        PromptCount   = count(),\n        SourceIPs     = dcount(IPAddress),\n        SourceIPList  = make_set(IPAddress, 10),\n        Locations     = make_set(Location, 5),\n        AppNames      = make_set(AppDisplayName, 5),\n        FirstPrompt   = min(TimeGenerated),\n        LastPrompt    = max(TimeGenerated)\n        by UserPrincipalName, bin(TimeGenerated, 5m)\n    | where PromptCount >= MFAPromptThresh\n    | extend ThreatSignal = \"MFAPromptFlood\";\n\n// ── Step 2: MFA success after fatigue spike — victim accepted under pressure ──\nlet FatigueAcceptance =\n    MFAPromptFlood\n    | join kind=inner (\n        SigninLogs\n        | where ingestion_time() > ago(LookbackPeriod)\n        | where ResultType == \"0\"                     // successful sign-in\n        | where isnotempty(UserPrincipalName)\n        | project\n            UserPrincipalName,\n            SuccessTime    = TimeGenerated,\n            SuccessIP      = IPAddress,\n            SuccessCountry = Location,\n            SuccessApp     = AppDisplayName\n    ) on UserPrincipalName\n    | where SuccessTime > LastPrompt\n        and SuccessTime < LastPrompt + 15m           // accepted within 15 min of last prompt\n    | extend ThreatSignal = \"FatigueAcceptance\";\n\n// ── Step 3: Multi-IP prompt flood — distributed attack infrastructure ─────────\nlet DistributedMFAFlood =\n    MFAPromptFlood\n    | where SourceIPs >= 3                           // prompts from ≥3 different IPs\n    | extend ThreatSignal = \"DistributedMFAFlood\";\n\n// ── Step 4: Risky sign-in following MFA prompt flood ─────────────────────────\nlet RiskyPostMFA =\n    MFAPromptFlood\n    | join kind=inner (\n        SigninLogs\n        | where ingestion_time() > ago(LookbackPeriod)\n        | where ResultType == \"0\"\n        | where RiskLevelDuringSignIn in (\"high\", \"medium\")\n        | project\n            UserPrincipalName,\n            RiskyTime     = TimeGenerated,\n            RiskLevel     = RiskLevelDuringSignIn,\n            RiskyIP       = IPAddress,\n            RiskyLocation = Location\n    ) on UserPrincipalName\n    | where RiskyTime > LastPrompt\n    | extend ThreatSignal = \"RiskySigninPostMFAFlood\";\n\n// ── Step 5: Union all signals ─────────────────────────────────────────────────\nunion\n    (MFAPromptFlood\n        | extend\n            SuccessIP = \"\", SuccessCountry = \"\", SuccessApp = \"\",\n            RiskLevel = \"\", RiskyIP = \"\", RiskyLocation = \"\",\n            SuccessTime = datetime(null)),\n    (FatigueAcceptance\n        | extend\n            RiskLevel = \"\", RiskyIP = \"\", RiskyLocation = \"\"),\n    (DistributedMFAFlood\n        | extend\n            SuccessIP = \"\", SuccessCountry = \"\", SuccessApp = \"\",\n            RiskLevel = \"\", RiskyIP = \"\", RiskyLocation = \"\",\n            SuccessTime = datetime(null)),\n    (RiskyPostMFA\n        | extend\n            SuccessIP = \"\", SuccessCountry = \"\", SuccessApp = \"\",\n            SuccessTime = datetime(null))\n| extend\n    AlertSeverity   = \"High\",\n    MitreTechnique  = \"T1621\",\n    MitreTactic     = \"Credential Access\",\n    PlaybookTrigger = \"block_ip\",\n    RiskScore       = 85\n| project\n    Timestamp        = coalesce(FirstPrompt, RiskyTime),\n    UserPrincipalName,\n    ThreatSignal,\n    PromptCount,\n    SourceIPs,\n    SourceIPList,\n    Locations,\n    AppNames,\n    SuccessIP,\n    SuccessCountry,\n    RiskLevel,\n    RiskyIP,\n    AlertSeverity,\n    MitreTechnique,\n    MitreTactic,\n    PlaybookTrigger,\n    RiskScore\n| order by Timestamp desc\n",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT5M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT5H",
+        "suppressionEnabled": false,
+        "tactics": [
+          "CredentialAccess"
+        ],
+        "techniques": [
+          "T1621"
+        ],
+        "alertRuleTemplateName": "a1b2c3d4-0003-4e5f-a003-000000000003",
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              {
+                "identifier": "FullName",
+                "columnName": "UserPrincipalName"
+              }
+            ]
+          },
+          {
+            "entityType": "IP",
+            "fieldMappings": [
+              {
+                "identifier": "Address",
+                "columnName": "IPAddress"
+              }
+            ]
+          }
+        ],
+        "customDetails": {
+          "PlaybookTrigger": "PlaybookTrigger",
+          "RiskScore": "RiskScore",
+          "MFAAttemptCount": "MFAAttemptCount"
+        },
+        "requiredDataConnectors": [
+          {
+            "connectorId": "RetailShield",
+            "dataTypes": [
+              "SigninLogs"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

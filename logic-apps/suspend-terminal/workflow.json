@@ -1,0 +1,215 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": { "description": "Microsoft Sentinel Log Analytics workspace name" }
+    },
+    "logicAppName": {
+      "type": "string",
+      "defaultValue": "RetailShield-SuspendTerminal",
+      "metadata": { "description": "Name of the Logic App" }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": { "description": "Azure region for the Logic App" }
+    },
+    "posManagementApiUrl": {
+      "type": "string",
+      "metadata": { "description": "Base URL of the POS management REST API used to suspend terminals" }
+    },
+    "posApiKeySecretName": {
+      "type": "string",
+      "defaultValue": "RetailShield-POS-API-Key",
+      "metadata": { "description": "Name of the Key Vault secret containing the POS API key" }
+    },
+    "keyVaultName": {
+      "type": "string",
+      "metadata": { "description": "Name of the Azure Key Vault holding the POS API key" }
+    }
+  },
+  "variables": {
+    "sentinelConnectionName": "azuresentinel",
+    "keyVaultConnectionName": "keyvault"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('sentinelConnectionName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "displayName": "Microsoft Sentinel",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/azuresentinel')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('keyVaultConnectionName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "displayName": "Azure Key Vault",
+        "parameterValues": {
+          "vaultName": "[parameters('keyVaultName')]"
+        },
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/keyvault')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('logicAppName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', variables('sentinelConnectionName'))]",
+        "[resourceId('Microsoft.Web/connections', variables('keyVaultConnectionName'))]"
+      ],
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": { "defaultValue": {}, "type": "Object" },
+            "posApiUrl": { "defaultValue": "", "type": "String" },
+            "posApiKeySecretName": { "defaultValue": "", "type": "String" }
+          },
+          "triggers": {
+            "Microsoft_Sentinel_incident": {
+              "type": "ApiConnectionWebhook",
+              "inputs": {
+                "body": {
+                  "callback_url": "@{listCallbackUrl()}"
+                },
+                "host": {
+                  "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" }
+                },
+                "path": "/incident-creation"
+              }
+            }
+          },
+          "actions": {
+            "Get_POS_API_key": {
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": { "name": "@parameters('$connections')['keyvault']['connectionId']" }
+                },
+                "method": "get",
+                "path": "/secrets/@{encodeURIComponent(parameters('posApiKeySecretName'))}/value"
+              },
+              "runAfter": {}
+            },
+            "Get_incident_entities": {
+              "type": "ApiConnection",
+              "inputs": {
+                "body": "@triggerBody()",
+                "host": {
+                  "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" }
+                },
+                "method": "post",
+                "path": "/Incidents/subscriptions/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['SubscriptionId'])}/resourceGroups/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['ResourceGroupName'])}/workspaces/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['WorkspaceName'])}/incidents/@{encodeURIComponent(triggerBody()?['object']?['properties']?['incidentNumber'])}/entities"
+              },
+              "runAfter": {}
+            },
+            "Parse_custom_details": {
+              "type": "ParseJson",
+              "inputs": {
+                "content": "@triggerBody()?['object']?['properties']?['additionalData']?['alertProductNames']",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "TerminalId_s": { "type": "string" },
+                    "StoreId_s": { "type": "string" }
+                  }
+                }
+              },
+              "runAfter": { "Get_incident_entities": ["Succeeded"] }
+            },
+            "Get_terminal_id_from_alert": {
+              "type": "Compose",
+              "inputs": "@coalesce(triggerBody()?['object']?['properties']?['additionalData']?['customDetails']?['TerminalId_s'], 'UNKNOWN')",
+              "runAfter": { "Parse_custom_details": ["Succeeded", "Failed"] }
+            },
+            "Suspend_POS_terminal": {
+              "type": "Http",
+              "inputs": {
+                "method": "POST",
+                "uri": "@{concat(parameters('posApiUrl'), '/terminals/', outputs('Get_terminal_id_from_alert'), '/suspend')}",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "X-API-Key": "@body('Get_POS_API_key')?['value']"
+                },
+                "body": {
+                  "reason": "Suspended by RetailShield security automation in response to Sentinel incident.",
+                  "sentinelIncidentId": "@triggerBody()?['object']?['properties']?['incidentNumber']",
+                  "timestamp": "@utcNow()"
+                }
+              },
+              "runAfter": {
+                "Get_terminal_id_from_alert": ["Succeeded"],
+                "Get_POS_API_key": ["Succeeded"]
+              }
+            },
+            "Add_comment_to_incident": {
+              "type": "ApiConnection",
+              "inputs": {
+                "body": {
+                  "message": "@{concat('<p>RetailShield suspend-terminal playbook executed. Terminal ID: <strong>', outputs('Get_terminal_id_from_alert'), '</strong> has been sent a suspend command via the POS Management API. HTTP status: ', string(outputs('Suspend_POS_terminal')?['statusCode']), '. Verify terminal status in your POS management console before re-enabling.</p>')}"
+                },
+                "host": {
+                  "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" }
+                },
+                "method": "post",
+                "path": "/Incidents/subscriptions/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['SubscriptionId'])}/resourceGroups/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['ResourceGroupName'])}/workspaces/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['WorkspaceName'])}/incidents/@{encodeURIComponent(triggerBody()?['object']?['properties']?['incidentNumber'])}/comments"
+              },
+              "runAfter": { "Suspend_POS_terminal": ["Succeeded", "Failed"] }
+            }
+          }
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azuresentinel": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('sentinelConnectionName'))]",
+                "connectionName": "[variables('sentinelConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/azuresentinel')]"
+              },
+              "keyvault": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('keyVaultConnectionName'))]",
+                "connectionName": "[variables('keyVaultConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/keyvault')]"
+              }
+            }
+          },
+          "posApiUrl": {
+            "value": "[parameters('posManagementApiUrl')]"
+          },
+          "posApiKeySecretName": {
+            "value": "[parameters('posApiKeySecretName')]"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "logicAppResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Logic/workflows', parameters('logicAppName'))]"
+    },
+    "principalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Logic/workflows', parameters('logicAppName')), '2019-05-01', 'Full').identity.principalId]"
+    }
+  }
+}

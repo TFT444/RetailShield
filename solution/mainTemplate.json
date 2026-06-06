@@ -1,0 +1,445 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "author": "ShieldTech Ltd",
+    "comments": "RetailShield Microsoft Sentinel Solution — main deployment template"
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "minLength": 1,
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where Microsoft Sentinel is deployed."
+      }
+    },
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1,
+      "metadata": {
+        "description": "Resource ID of the Log Analytics workspace."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources. Defaults to the resource group location."
+      }
+    },
+    "complianceContactEmail": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Email address of the retailer's designated compliance/security contact. Required for the incident-reporting playbook."
+      }
+    },
+    "organisationName": {
+      "type": "string",
+      "defaultValue": "Retail Organisation",
+      "metadata": {
+        "description": "Organisation name used in compliance notification emails."
+      }
+    },
+    "deployAnalyticsRules": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Set to false to skip deploying analytics rules (e.g., if deploying rules separately)."
+      }
+    },
+    "deployPlaybooks": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Set to false to skip deploying Logic App playbooks."
+      }
+    },
+    "deployDataConnector": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Set to false to skip creating custom Log Analytics tables (if they already exist)."
+      }
+    }
+  },
+  "variables": {
+    "solutionId": "retailshield",
+    "solutionVersion": "1.0.0",
+    "contentSchemaVersion": "3.0.0",
+    "playbooks": [
+      "block-ip",
+      "isolate-endpoint",
+      "quarantine-email",
+      "suspend-terminal",
+      "incident-reporting"
+    ],
+    "analyticsRuleNames": [
+      "phishing_detection",
+      "pos_void_refund",
+      "mfa_fatigue",
+      "data_exfiltration",
+      "ai_voice_fraud",
+      "credential_stuffing",
+      "after_hours_access",
+      "gift_card_fraud",
+      "pos_anomaly",
+      "ransomware_indicator",
+      "supply_chain_anomaly",
+      "supplier_impossible_travel",
+      "privileged_role_addition"
+    ]
+  },
+  "resources": [
+    {
+      "condition": "[parameters('deployDataConnector')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-data-connector",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/data-connectors/retailshield-connector.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" },
+          "location": { "value": "[parameters('location')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployPlaybooks')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-playbook-block-ip",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../logic-apps/block-ip/workflow.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" },
+          "location": { "value": "[parameters('location')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployPlaybooks')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-playbook-isolate-endpoint",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../logic-apps/isolate-endpoint/workflow.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" },
+          "location": { "value": "[parameters('location')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployPlaybooks')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-playbook-quarantine-email",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../logic-apps/quarantine-email/workflow.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" },
+          "location": { "value": "[parameters('location')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployPlaybooks')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-playbook-suspend-terminal",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../logic-apps/suspend-terminal/workflow.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" },
+          "location": { "value": "[parameters('location')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployPlaybooks')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-playbook-incident-reporting",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../logic-apps/incident-reporting/workflow.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" },
+          "location": { "value": "[parameters('location')]" },
+          "complianceContactEmail": { "value": "[parameters('complianceContactEmail')]" },
+          "organisationName": { "value": "[parameters('organisationName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-phishing-detection",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/phishing_detection.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-pos-void-refund",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/pos_void_refund.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-mfa-fatigue",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/mfa_fatigue.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-data-exfiltration",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/data_exfiltration.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-ai-voice-fraud",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/ai_voice_fraud.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-credential-stuffing",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/credential_stuffing.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-after-hours-access",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/after_hours_access.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-gift-card-fraud",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/gift_card_fraud.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-pos-anomaly",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/pos_anomaly.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-ransomware-indicator",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/ransomware_indicator.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-supply-chain-anomaly",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/supply_chain_anomaly.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-supplier-impossible-travel",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/supplier_impossible_travel.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAnalyticsRules')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "retailshield-rule-privileged-role-addition",
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'retailshield-data-connector')]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "relativePath": "../sentinel/analytics-rules/privileged_role_addition.json"
+        },
+        "parameters": {
+          "workspaceName": { "value": "[parameters('workspaceName')]" }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "solutionVersion": {
+      "type": "string",
+      "value": "[variables('solutionVersion')]"
+    },
+    "workspaceName": {
+      "type": "string",
+      "value": "[parameters('workspaceName')]"
+    },
+    "playbacksDeployed": {
+      "type": "bool",
+      "value": "[parameters('deployPlaybooks')]"
+    },
+    "analyticsRulesDeployed": {
+      "type": "bool",
+      "value": "[parameters('deployAnalyticsRules')]"
+    }
+  }
+}
