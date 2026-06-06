@@ -508,6 +508,236 @@ function PlaybookModal({ threat, onClose }) {
   )
 }
 
+function getComplianceContext(mitre) {
+  if (mitre.startsWith('T1566')) return {
+    nature: 'A targeted spearphishing email was delivered to a privileged user account containing a malicious attachment. Potential credential compromise and account takeover are under investigation.',
+    affectedData: 'Senior executive email account, internal communications, and potentially captured credentials. The scope of any credential access is under active investigation.',
+    consequences: 'Risk of business email compromise, financial fraud, and further network penetration if credentials were captured. Immediate DPO notification assessment required.',
+  }
+  if (mitre.startsWith('T1110')) return {
+    nature: 'An automated credential stuffing attack targeted the POS admin portal using leaked credentials from a known breach dataset. Multiple accounts were confirmed compromised.',
+    affectedData: '4 compromised administrator accounts with potential access to POS transaction records, cardholder data, and administrative functions.',
+    consequences: 'Potential unauthorised access to cardholder data triggers PCI DSS notification obligation. UK GDPR Art.33 notification is required if personal data was accessed by an unauthorised party.',
+  }
+  if (mitre.startsWith('T1486')) return {
+    nature: 'Ransomware was deployed on an endpoint; files were encrypted and volume shadow copies deleted. Command-and-control communication to known threat actor infrastructure was confirmed.',
+    affectedData: '847 files encrypted on the affected endpoint. Potential spread to network shares. Any personal data within encrypted files requires urgent scoping to determine Art.33 obligation.',
+    consequences: 'Data unavailability, potential extortion demand, and systemic risk if ransomware has spread laterally. Art.33 notification is required if personal data is rendered permanently unavailable.',
+  }
+  if (mitre.startsWith('T1048')) return {
+    nature: 'Customer database records were exfiltrated via DNS tunnelling to external threat actor infrastructure. Approximately 2.1 GB of data was staged and transmitted before DNS blocking was applied.',
+    affectedData: 'Customer PII database (estimated 2.1 GB): likely includes names, contact details, purchase history, and potentially payment card references held by the data processor.',
+    consequences: 'High-risk personal data breach with near-certain likelihood of harm to data subjects. ICO Art.33 notification is mandatory. Individual notification under Art.34 is likely required.',
+  }
+  return {
+    nature: 'A security incident has been detected and is under active investigation by the security team.',
+    affectedData: '[REVIEWER: Assess and document which data categories and approximate volumes were affected]',
+    consequences: '[REVIEWER: Assess the likely consequences of the breach for affected individuals and the organisation]',
+  }
+}
+
+function ComplianceReportCard({ report, clock }) {
+  const [expanded, setExpanded] = React.useState(false)
+  const ncscMs = report.ncscDeadline - clock
+  const icoMs  = report.icoDeadline  - clock
+
+  const fmtMs = ms => {
+    if (ms <= 0) return 'OVERDUE'
+    const h  = Math.floor(ms / 3600000)
+    const m  = Math.floor((ms % 3600000) / 60000)
+    const sc = Math.floor((ms % 60000) / 1000)
+    return `${h}h ${String(m).padStart(2,'0')}m ${String(sc).padStart(2,'0')}s`
+  }
+
+  const ncscStr    = fmtMs(ncscMs)
+  const icoStr     = fmtMs(icoMs)
+  const ncscOver   = ncscMs <= 0
+  const icoOver    = icoMs  <= 0
+  const ncscUrgent = !ncscOver && ncscMs < 6  * 3600000
+  const icoUrgent  = !icoOver  && icoMs  < 24 * 3600000
+
+  const ctx = getComplianceContext(report.mitre)
+
+  const draftText = [
+    'UK REGULATORY COMPLIANCE DRAFT REPORT',
+    'RetailShield — Incident Compliance Notification',
+    '=================================================',
+    '',
+    `Generated        : ${new Date().toLocaleString('en-GB')}`,
+    'Classification   : DRAFT — REQUIRES HUMAN REVIEW BEFORE SUBMISSION',
+    'Organisation     : [REVIEWER: Insert organisation name]',
+    '',
+    '1. INCIDENT OVERVIEW',
+    '--------------------',
+    `Incident Title   : ${report.incidentTitle}`,
+    `Incident ID      : ${report.id}`,
+    `Detection Time   : ${report.detectionTime.toLocaleString('en-GB')}`,
+    'Severity         : CRITICAL',
+    `MITRE Technique  : ${report.mitre} — ${report.tactic}`,
+    `Affected System  : ${report.affectedSystems}`,
+    'Current Status   : Contained by RetailShield automated playbooks',
+    '',
+    '2. NATURE OF THE BREACH',
+    '-----------------------',
+    ctx.nature,
+    '',
+    '3. CATEGORIES AND APPROXIMATE VOLUME OF AFFECTED DATA',
+    '------------------------------------------------------',
+    ctx.affectedData,
+    '',
+    '4. LIKELY CONSEQUENCES OF THE BREACH',
+    '-------------------------------------',
+    ctx.consequences,
+    '',
+    '5. MEASURES TAKEN OR PROPOSED',
+    '------------------------------',
+    'RetailShield Automated Response:',
+    ...report.autoActions.map(a => `  • ${a}`),
+    '',
+    '[REVIEWER: Add any additional manual measures taken by your team]',
+    '',
+    '6. NOTIFICATION TIMELINE',
+    '------------------------',
+    `Detection Time           : ${report.detectionTime.toLocaleString('en-GB')}`,
+    `NCSC Early-Warning (24h) : ${report.ncscDeadline.toLocaleString('en-GB')}`,
+    `ICO Full Report (72h)    : ${report.icoDeadline.toLocaleString('en-GB')}`,
+    '',
+    '[REVIEWER: Record actual submission timestamps here]',
+    '',
+    '7. DATA CONTROLLER CONTACT DETAILS',
+    '------------------------------------',
+    'Organisation    : [REVIEWER: Complete before submission]',
+    'Data Controller : [REVIEWER: Full name and title]',
+    'Contact Email   : [REVIEWER: security@yourorganisation.com]',
+    'DPO             : [REVIEWER: Provide DPO contact details if applicable]',
+    'Reference No.   : [REVIEWER: Assign your internal incident reference]',
+    '',
+    '=================================================',
+    'IMPORTANT DISCLAIMER',
+    'This draft was generated automatically by RetailShield v1.0 (ShieldTech Ltd).',
+    'A qualified Data Protection Officer or legal counsel MUST review and approve',
+    'this report before submission. Do NOT submit directly to regulators without',
+    'prior human review and authorisation.',
+    '',
+    'Submission Portals:',
+    '  • ICO:  https://ico.org.uk/for-organisations/report-a-breach/',
+    '  • NCSC: https://www.ncsc.gov.uk/section/about-this-website/incident-management',
+    '=================================================',
+  ].join('\n')
+
+  const handleDownload = () => {
+    const blob = new Blob([draftText], { type: 'text/plain' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `RetailShield-Compliance-${report.id}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const ncscColor = ncscOver ? C.dim : ncscUrgent ? C.red    : C.text
+  const icoColor  = icoOver  ? C.dim : icoUrgent  ? C.orange : C.text
+
+  return (
+    <div style={{ background:C.card, border:`1.5px solid ${C.red}40`, borderRadius:10, marginBottom:12, overflow:'hidden' }}>
+      <div style={{ padding:'13px 20px', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', gap:12, cursor:'pointer' }} onClick={() => setExpanded(e => !e)}>
+        <span style={{ fontSize:11, fontWeight:800, color:C.red, background:`${C.red}20`, padding:'3px 10px', borderRadius:4, border:`1px solid ${C.red}40`, textTransform:'uppercase', flexShrink:0 }}>CRITICAL</span>
+        <span style={{ fontWeight:700, fontSize:13, flex:1 }}>{report.incidentTitle}</span>
+        <span style={{ fontSize:11, color:C.muted, fontFamily:'monospace', flexShrink:0 }}>{report.mitre}</span>
+        <span style={{ fontSize:11, color:C.dim, flexShrink:0 }}>📍 {report.affectedSystems}</span>
+        <span style={{ fontSize:12, color:C.dim, flexShrink:0 }}>{expanded ? '▲' : '▼'}</span>
+      </div>
+
+      <div style={{ padding:'12px 20px', borderBottom:`1px solid ${C.border}`, display:'flex', gap:24, flexWrap:'wrap', alignItems:'center' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:24 }}>
+          <div>
+            <div style={{ fontSize:9, color:C.dim, textTransform:'uppercase', letterSpacing:'0.8px', marginBottom:4 }}>NCSC 24h Early-Warning (CSR Bill)</div>
+            <div style={{ fontFamily:'monospace', fontSize:20, fontWeight:800, color:ncscColor, textShadow:ncscUrgent?`0 0 10px ${C.red}80`:'none', animation:ncscUrgent?'urgentPulse 0.7s ease-in-out infinite':'none' }}>{ncscStr}</div>
+            <div style={{ fontSize:9, color:ncscColor, opacity:0.7, marginTop:3 }}>Deadline: {report.ncscDeadline.toLocaleString('en-GB')}</div>
+          </div>
+          <div style={{ width:1, height:44, background:C.border }} />
+          <div>
+            <div style={{ fontSize:9, color:C.dim, textTransform:'uppercase', letterSpacing:'0.8px', marginBottom:4 }}>ICO 72h Full Report (UK GDPR Art.33)</div>
+            <div style={{ fontFamily:'monospace', fontSize:20, fontWeight:800, color:icoColor }}>{icoStr}</div>
+            <div style={{ fontSize:9, color:icoColor, opacity:0.7, marginTop:3 }}>Deadline: {report.icoDeadline.toLocaleString('en-GB')}</div>
+          </div>
+        </div>
+        <div style={{ marginLeft:'auto', display:'flex', gap:8, flexWrap:'wrap' }}>
+          <a href="https://ico.org.uk/for-organisations/report-a-breach/" target="_blank" rel="noopener noreferrer"
+            style={{ background:`${C.yellow}15`, color:C.yellow, border:`1px solid ${C.yellow}40`, borderRadius:6, padding:'7px 14px', fontSize:11, fontWeight:700, textDecoration:'none', display:'flex', alignItems:'center', gap:5 }}>
+            ⚖️ Submit to ICO ↗
+          </a>
+          <a href="https://www.ncsc.gov.uk/section/about-this-website/incident-management" target="_blank" rel="noopener noreferrer"
+            style={{ background:`${C.blue}15`, color:C.blue, border:`1px solid ${C.blue}40`, borderRadius:6, padding:'7px 14px', fontSize:11, fontWeight:700, textDecoration:'none', display:'flex', alignItems:'center', gap:5 }}>
+            🏗 Submit to NCSC ↗
+          </a>
+          <button onClick={handleDownload}
+            style={{ background:`${C.green}15`, color:C.green, border:`1px solid ${C.green}40`, borderRadius:6, padding:'7px 14px', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+            ⬇ Download Draft
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div style={{ padding:'20px 24px' }}>
+          <div style={{ background:C.surface, borderRadius:8, padding:'14px 18px', marginBottom:16, border:`1px solid ${C.border}` }}>
+            <div style={{ fontWeight:700, fontSize:11, color:C.dim, textTransform:'uppercase', letterSpacing:'0.8px', marginBottom:10 }}>Incident Summary</div>
+            <div style={{ display:'grid', gridTemplateColumns:'160px 1fr', gap:'7px 16px', fontSize:12 }}>
+              {[
+                ['Incident Title',   report.incidentTitle],
+                ['Detection Time',   report.detectionTime.toLocaleString('en-GB')],
+                ['MITRE Technique',  `${report.mitre} — ${report.tactic}`],
+                ['Affected System',  report.affectedSystems],
+                ['Severity',         'CRITICAL'],
+              ].map(([k, v]) => (
+                <React.Fragment key={k}>
+                  <span style={{ color:C.dim, fontWeight:600 }}>{k}</span>
+                  <span style={{ color:C.text, fontFamily:k==='Detection Time'||k==='MITRE Technique'?'monospace':'inherit' }}>{v}</span>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ fontWeight:700, fontSize:11, color:C.dim, textTransform:'uppercase', letterSpacing:'0.8px', marginBottom:12 }}>UK Draft Compliance Report — 7 Sections</div>
+          {[
+            { num:'1', title:'Incident Overview',
+              body:`Detected: ${report.detectionTime.toLocaleString('en-GB')} · Technique: ${report.mitre} (${report.tactic}) · System: ${report.affectedSystems}. Status: Contained by RetailShield automated response playbooks.` },
+            { num:'2', title:'Nature of the Breach',      body: ctx.nature },
+            { num:'3', title:'Affected Data Categories & Volume', body: ctx.affectedData },
+            { num:'4', title:'Likely Consequences',       body: ctx.consequences },
+            { num:'5', title:'Measures Taken',
+              body: report.autoActions.map(a => `• ${a}`).join('\n') + '\n\n[REVIEWER: Add any manual measures taken by your team]' },
+            { num:'6', title:'Notification Timeline',
+              body:`Detection        : ${report.detectionTime.toLocaleString('en-GB')}\nNCSC Deadline    : ${report.ncscDeadline.toLocaleString('en-GB')} (24h — CSR Bill)\nICO Deadline     : ${report.icoDeadline.toLocaleString('en-GB')} (72h — UK GDPR Art.33)\n\n[REVIEWER: Record actual submission timestamps here]` },
+            { num:'7', title:'Data Controller Contact',
+              body:'[REVIEWER: Organisation name]\n[REVIEWER: Data Controller — full name & title]\n[REVIEWER: Contact email address]\n[REVIEWER: DPO details if applicable]\n[REVIEWER: Internal incident reference number]' },
+          ].map(({ num, title, body }) => {
+            const needsReview = body.includes('[REVIEWER')
+            return (
+              <div key={num} style={{ background:C.surface, border:`1px solid ${C.border}`, borderLeft:`3px solid ${needsReview?C.orange:C.blue}`, borderRadius:8, padding:'14px 16px', marginBottom:10 }}>
+                <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:8 }}>
+                  <span style={{ fontSize:10, fontWeight:800, color:C.blue, background:`${C.blue}15`, padding:'2px 7px', borderRadius:3, flexShrink:0 }}>§{num}</span>
+                  <span style={{ fontWeight:700, fontSize:12 }}>{title}</span>
+                  {needsReview && <span style={{ fontSize:9, color:C.orange, background:`${C.orange}15`, padding:'2px 7px', borderRadius:3, marginLeft:'auto', flexShrink:0 }}>ACTION REQUIRED</span>}
+                </div>
+                <pre style={{ fontFamily:'-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', fontSize:12, color:C.muted, lineHeight:1.7, whiteSpace:'pre-wrap', margin:0 }}>{body}</pre>
+              </div>
+            )
+          })}
+
+          <div style={{ background:`${C.yellow}10`, border:`1px solid ${C.yellow}40`, borderRadius:8, padding:'12px 16px', marginTop:4 }}>
+            <div style={{ fontSize:11, color:C.yellow, lineHeight:1.6 }}>
+              <strong>⚠ IMPORTANT DISCLAIMER:</strong> This draft was generated automatically by RetailShield v1.0. A qualified Data Protection Officer or legal counsel <strong>MUST</strong> review and approve this report before submission to regulators. Do <strong>NOT</strong> submit directly to the ICO or NCSC without prior human authorisation.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function RetailShield() {
   const [threats, setThreats]   = useState(BASE_THREATS)
   const [filter, setFilter]     = useState('all')
@@ -522,6 +752,7 @@ export default function RetailShield() {
   const [vulnProg, setVulnProg]   = useState(0)
   const [briefing, setBriefing]   = useState(null)
   const [briefStatus, setBriefStatus] = useState(null)
+  const [complianceReports, setComplianceReports] = useState([])
 
   useEffect(() => { const id = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(id) }, [])
 
@@ -544,12 +775,29 @@ export default function RetailShield() {
     if (simStatus === 'running') return
     setSimStatus('running')
     setScore(s => Math.max(10, s - 20))
+    setComplianceReports([])
     ATTACK_SIM_EVENTS.forEach((event, i) => {
       setTimeout(() => {
         const threat = { ...event, id: Date.now() + i, ts: Date.now() }
         setThreats(prev => [threat, ...prev.slice(0, 14)])
         setBanner(threat)
         setTimeout(() => setBanner(null), 3500)
+        if (event.severity === 'critical') {
+          const detTime = new Date()
+          const report = {
+            id:             `RS-${Date.now()}-${i}`,
+            incidentTitle:  event.name,
+            severity:       event.severity,
+            detectionTime:  detTime,
+            mitre:          event.mitre,
+            tactic:         event.tactic,
+            affectedSystems: event.device,
+            autoActions:    event.playbook.auto,
+            ncscDeadline:   new Date(detTime.getTime() + 24 * 3600000),
+            icoDeadline:    new Date(detTime.getTime() + 72 * 3600000),
+          }
+          setComplianceReports(prev => [...prev, report])
+        }
         if (i === ATTACK_SIM_EVENTS.length - 1) {
           setTimeout(() => { setSimStatus('complete'); setTimeout(() => setSimStatus(null), 6000) }, 800)
         }
@@ -878,6 +1126,32 @@ export default function RetailShield() {
               <div style={{ fontSize:28, marginBottom:8 }}>🤖</div>
               <div style={{ fontSize:13, color:C.muted, marginBottom:4 }}>Click <strong style={{ color:'#a78bfa' }}>GENERATE AI BRIEFING</strong> to produce a board-ready executive summary</div>
               <div style={{ fontSize:11, color:C.dim }}>Analyses active threats · CVE severity · PCI DSS exposure · Regulatory obligations</div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginBottom:18 }}>
+          {complianceReports.length === 0 ? (
+            <div style={{ ...s.card, padding:'18px 24px', display:'flex', alignItems:'center', gap:14 }}>
+              <span style={{ fontSize:18 }}>✅</span>
+              <div>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <span style={{ fontWeight:700, fontSize:13, color:C.green }}>UK Compliance Reports</span>
+                  <span style={{ fontSize:11, color:C.green, background:`${C.green}15`, padding:'3px 10px', borderRadius:5, border:`1px solid ${C.green}40` }}>No reportable incidents</span>
+                </div>
+                <div style={{ fontSize:11, color:C.dim, marginTop:5 }}>When a CRITICAL incident is detected, UK GDPR (ICO 72h) and CSR Bill (NCSC 24h) compliance reports will appear here with live countdown timers and pre-filled draft notifications.</div>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ background:'#1a0505', border:`1.5px solid ${C.red}`, borderRadius:10, padding:'14px 22px', marginBottom:14, display:'flex', alignItems:'center', gap:12 }}>
+                <span style={{ fontSize:20 }}>🚨</span>
+                <span style={{ fontWeight:800, fontSize:14, color:C.red, textTransform:'uppercase', letterSpacing:'1.2px', flex:1 }}>UK Regulatory Notification Required</span>
+                <span style={{ fontSize:11, color:C.red, background:`${C.red}20`, padding:'4px 12px', borderRadius:5, border:`1px solid ${C.red}50`, flexShrink:0 }}>
+                  {complianceReports.length} critical incident{complianceReports.length > 1 ? 's' : ''} — countdown active
+                </span>
+              </div>
+              {complianceReports.map(r => <ComplianceReportCard key={r.id} report={r} clock={clock} />)}
             </div>
           )}
         </div>
