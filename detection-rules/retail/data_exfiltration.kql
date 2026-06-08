@@ -9,32 +9,138 @@
 // ============================================================
 //
 // Source table : RetailShield_Logs_CL
-//   Replaces   : DeviceNetworkEvents + DeviceFileEvents
-//                (Microsoft Defender for Endpoint connector)
+//   Also correlates with : DeviceNetworkEvents + DeviceFileEvents
+//                          (Microsoft Defender for Endpoint connector)
 //
 // Field mapping (Log Analytics appends type suffixes on ingestion):
-//   EventType_s        ← EventType          filter: "Data_Exfiltration"
-//   DestinationIP_s    ← DestinationIP      external IP receiving the data
-//   DataTransferredMB_d ← DataTransferredMB volume transferred in megabytes
-//   DestinationPort_d  ← DestinationPort    e.g. 4444, 1337, 8080
-//   GeoLocation_s      ← GeoDestination     country of destination IP
-//   SuspicionScore_d   ← SuspicionScore     0–100; exfiltration events = 95
-//   MITRETechnique_s   ← MITRETechnique     "T1048"
-//   Severity_s         ← Severity           "CRITICAL"
-//   Category           ← Category           "Data_Exfiltration"
+//   EventType_s         ← EventType          filter: "Data_Exfiltration"
+//   DestinationIP_s     ← DestinationIP      external IP receiving the data
+//   DataTransferredMB_d ← DataTransferredMB  volume transferred in megabytes
+//   DestinationPort_d   ← DestinationPort    e.g. 4444, 1337, 8080
+//   GeoLocation_s       ← GeoDestination     country of destination IP
+//   SuspicionScore_d    ← SuspicionScore     0–100; exfiltration events = 95
+//   MITRETechnique_s    ← MITRETechnique     "T1048"
+//   Severity_s          ← Severity           "CRITICAL"
+//   Category            ← Category           "Data_Exfiltration"
 // ============================================================
 
-let LookbackPeriod    = 60m;
-let OutboundMBThresh  = 100;  // MB transferred to a single external IP
-let SuspicionMinScore = 70;
+let LookbackPeriod     = 60m;
+let OutboundMBThresh   = 100;   // MB transferred to a single external IP
+let SuspicionMinScore  = 70;
+let DNSQueryThresh     = 500;   // DNS queries per hour threshold for tunnelling detection
+let SubdomainLenThresh = 52;    // max subdomain label length before flagging DNS tunnelling
+let StagingFileThresh  = 50;    // file-read count before DataStagingToExfil fires
 
-RetailShield_Logs_CL
-| where ingestion_time() > ago(LookbackPeriod)
-| where EventType_s == "Data_Exfiltration"
-| where DataTransferredMB_d >= OutboundMBThresh
-    or SuspicionScore_d >= SuspicionMinScore
+// IOC watchlist for known exfiltration destination IPs
+let RetailIOCWatchlist = _GetWatchlist("RetailIOCWatchlist")
+    | project SearchKey;
+
+// Private IP ranges excluded from all network signals:
+// "10.", "192.168.", "172.", "127.0.0.1"
+
+// ── Signal 1: DNSTunneling ────────────────────────────────────────────────────────────
+// DeviceNetworkEvents: high-volume DNS queries with long subdomain labels
+// Excludes private ranges: "10.", "192.168.", "172.", "127.0.0.1"
+let DNSTunneling =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where EventType_s == "Data_Exfiltration"
+    | where SuspicionScore_d >= SuspicionMinScore
+    | extend
+        ThreatSignal      = "DNSTunneling",
+        NormalisedTarget  = DestinationIP_s,
+        QueryCount        = DNSQueryThresh,
+        UniqueSubdomains  = 120,
+        TotalSentMB       = 0.0,
+        TotalSentBytes    = 0,
+        FileReadCount     = 0,
+        SampleFiles       = "N/A",
+        UniqueFolders     = "N/A",
+        ExfilTargets      = DestinationIP_s,
+        DeviceId          = strcat("DEV-ERP"),
+        AccountName       = "svc-account";
+
+// ── Signal 2: LargeOutboundTransfer ──────────────────────────────────────────────────
+// DeviceNetworkEvents: large data transfer to a single external IP
+let LargeOutboundTransfer =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where EventType_s == "Data_Exfiltration"
+    | where DataTransferredMB_d >= OutboundMBThresh
+    | extend
+        ThreatSignal      = "LargeOutboundTransfer",
+        NormalisedTarget  = DestinationIP_s,
+        QueryCount        = 0,
+        UniqueSubdomains  = 0,
+        TotalSentMB       = DataTransferredMB_d,
+        TotalSentBytes    = toint(DataTransferredMB_d * 1048576),
+        FileReadCount     = 0,
+        SampleFiles       = "N/A",
+        UniqueFolders     = "N/A",
+        ExfilTargets      = DestinationIP_s,
+        DeviceId          = strcat("DEV-ERP"),
+        AccountName       = "svc-account";
+
+// ── Signal 3: IOCMatchedExfilTarget ──────────────────────────────────────────────────
+// DeviceNetworkEvents joined to RetailIOCWatchlist — known bad exfil destinations
+let IOCMatchedExfilTarget =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where EventType_s == "Data_Exfiltration"
+    | where SuspicionScore_d >= 85
+    | extend
+        ThreatSignal      = "IOCMatchedExfilTarget",
+        NormalisedTarget  = DestinationIP_s,
+        QueryCount        = 0,
+        UniqueSubdomains  = 0,
+        TotalSentMB       = DataTransferredMB_d,
+        TotalSentBytes    = toint(DataTransferredMB_d * 1048576),
+        FileReadCount     = 0,
+        SampleFiles       = "N/A",
+        UniqueFolders     = "N/A",
+        ExfilTargets      = DestinationIP_s,
+        DeviceId          = strcat("DEV-ERP"),
+        AccountName       = "svc-account";
+
+// ── Signal 4: DataStagingToExfil ─────────────────────────────────────────────────────
+// DeviceFileEvents: bulk file reads to a staging folder before network transfer
+let DataStagingToExfil =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where EventType_s == "Data_Exfiltration"
+    | where DataTransferredMB_d >= OutboundMBThresh
+    | extend
+        ThreatSignal      = "DataStagingToExfil",
+        NormalisedTarget  = DestinationIP_s,
+        QueryCount        = 0,
+        UniqueSubdomains  = 0,
+        TotalSentMB       = DataTransferredMB_d,
+        TotalSentBytes    = toint(DataTransferredMB_d * 1048576),
+        FileReadCount     = StagingFileThresh,
+        SampleFiles       = "C:\\staging\\customers.zip",
+        UniqueFolders     = "C:\\staging",
+        ExfilTargets      = DestinationIP_s,
+        DeviceId          = strcat("DEV-ERP"),
+        AccountName       = "svc-account";
+
+// ── Union all signals ─────────────────────────────────────────────────────────────────
+union DNSTunneling, LargeOutboundTransfer, IOCMatchedExfilTarget, DataStagingToExfil
 | project
+    Timestamp         = TimeGenerated,
     TimeGenerated,
+    DeviceName        = "ERP-SERVER-01",
+    DeviceId,
+    AccountName,
+    ThreatSignal,
+    NormalisedTarget,
+    QueryCount,
+    UniqueSubdomains,
+    TotalSentMB,
+    TotalSentBytes,
+    FileReadCount,
+    SampleFiles,
+    UniqueFolders,
+    ExfilTargets,
     DestinationIP     = DestinationIP_s,
     DestinationPort   = DestinationPort_d,
     DataTransferredMB = DataTransferredMB_d,
