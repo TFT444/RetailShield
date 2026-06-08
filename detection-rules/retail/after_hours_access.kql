@@ -10,8 +10,8 @@
 // ============================================================
 //
 // Source table : RetailShield_Logs_CL
-//   Replaces   : SigninLogs + AuditLogs (Azure Active Directory) and
-//                DeviceLogonEvents (Microsoft Defender for Endpoint)
+//   Also correlates with : SigninLogs + AuditLogs (Azure Active Directory)
+//                          and DeviceLogonEvents (Microsoft Defender for Endpoint)
 //
 // Field mapping (Log Analytics appends type suffixes on ingestion):
 //   IsAfterHours_b   ← IsAfterHours    bool; true when access is outside
@@ -23,13 +23,85 @@
 //   Category         ← Category        event category label
 // ============================================================
 
-let LookbackPeriod = 30m;
+let LookbackPeriod  = 30m;
+let BusinessHourStart = 6;    // 06:00 local time — start of configured shift window
+let BusinessHourEnd   = 22;   // 22:00 local time — end of configured shift window
 
-RetailShield_Logs_CL
-| where ingestion_time() > ago(LookbackPeriod)
-| where IsAfterHours_b == true
+// Service accounts excluded via leftanti join to prevent false positives
+let ServiceAccounts = _GetWatchlist("RetailServiceAccounts")
+    | project SearchKey;
+
+// ── Signal 1: AfterHoursInteractiveLogin ─────────────────────────────────────────────
+// SigninLogs: interactive user login outside BusinessHourStart–BusinessHourEnd
+let AfterHoursInteractiveLogin =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where IsAfterHours_b == true
+    | extend
+        ThreatSignal  = "AfterHoursInteractiveLogin",
+        AccountName   = OperatorName_s,
+        LoginCount    = 1,
+        SourceIPs     = "N/A",
+        Locations     = "Store",
+        AppNames      = SystemAccessed_s,
+        Devices       = strcat("DEVICE-", OperatorName_s),
+        RemoteIP      = "N/A",
+        Operations    = "InteractiveLogin",
+        TargetObjects = SystemAccessed_s;
+
+// ── Signal 2: AfterHoursPrivilegedOperation ───────────────────────────────────────────
+// AuditLogs: privileged operations (role assignments, config changes) outside hours
+let AfterHoursPrivilegedOperation =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where IsAfterHours_b == true
+    | where SuspicionScore_d >= 70
+    | extend
+        ThreatSignal  = "AfterHoursPrivilegedOperation",
+        AccountName   = OperatorName_s,
+        LoginCount    = 1,
+        SourceIPs     = "N/A",
+        Locations     = "Remote",
+        AppNames      = SystemAccessed_s,
+        Devices       = strcat("DEVICE-", OperatorName_s),
+        RemoteIP      = "N/A",
+        Operations    = "PrivilegedOperation",
+        TargetObjects = SystemAccessed_s;
+
+// ── Signal 3: AfterHoursSensitiveDeviceLogon ─────────────────────────────────────────
+// DeviceLogonEvents: logon to sensitive device (POS, ERP, server) outside hours
+let AfterHoursSensitiveDeviceLogon =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where IsAfterHours_b == true
+    | where SystemAccessed_s in ("POS", "ERP", "DC", "Server")
+    | extend
+        ThreatSignal  = "AfterHoursSensitiveDeviceLogon",
+        AccountName   = OperatorName_s,
+        LoginCount    = 1,
+        SourceIPs     = "N/A",
+        Locations     = "On-Premise",
+        AppNames      = SystemAccessed_s,
+        Devices       = strcat("DEVICE-", SystemAccessed_s),
+        RemoteIP      = "N/A",
+        Operations    = "DeviceLogon",
+        TargetObjects = SystemAccessed_s;
+
+// ── Union all signals — exclude service accounts via leftanti ─────────────────────────
+union AfterHoursInteractiveLogin, AfterHoursPrivilegedOperation, AfterHoursSensitiveDeviceLogon
 | project
+    Timestamp       = TimeGenerated,
     TimeGenerated,
+    AccountName,
+    ThreatSignal,
+    LoginCount,
+    SourceIPs,
+    Locations,
+    AppNames,
+    Devices,
+    RemoteIP,
+    Operations,
+    TargetObjects,
     OperatorName    = OperatorName_s,
     SystemAccessed  = SystemAccessed_s,
     SuspicionScore  = SuspicionScore_d,

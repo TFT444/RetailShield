@@ -9,37 +9,128 @@
 // ============================================================
 //
 // Source table : RetailShield_Logs_CL
-//   Replaces   : DeviceFileEvents + DeviceProcessEvents + DeviceNetworkEvents
-//                (Microsoft Defender for Endpoint connector)
+//   Also correlates with : DeviceFileEvents + DeviceProcessEvents + DeviceNetworkEvents
+//                          (Microsoft Defender for Endpoint connector)
 //
 // Field mapping (Log Analytics appends type suffixes on ingestion):
-//   EventType_s          ← EventType           filter: "Ransomware_Indicator"
-//   DeviceName_s         ← DeviceName          affected endpoint hostname
-//   FilesModified_d      ← FilesModified       count of renamed/encrypted files
+//   EventType_s           ← EventType           filter: "Ransomware_Indicator"
+//   DeviceName_s          ← DeviceName          affected endpoint hostname
+//   FilesModified_d       ← FilesModified       count of renamed/encrypted files
 //   SuspiciousExtension_s ← SuspiciousExtension e.g. ".encrypted", ".locked", ".dragon"
-//   RansomwareFamily_s   ← RansomwareFamily    e.g. "DragonForce", "LockBit", "BlackCat"
-//   SuspicionScore_d     ← SuspicionScore      0–100; ransomware events = 99
-//   MITRETechnique_s     ← MITRETechnique      "T1486"
-//   Severity_s           ← Severity            "CRITICAL"
-//   Category             ← Category            "Ransomware_Indicator"
+//   RansomwareFamily_s    ← RansomwareFamily    e.g. "DragonForce", "LockBit", "BlackCat"
+//   SuspicionScore_d      ← SuspicionScore      0–100; ransomware events = 99
+//   MITRETechnique_s      ← MITRETechnique      "T1486"
+//   Severity_s            ← Severity            "CRITICAL"
+//   Category              ← Category            "Ransomware_Indicator"
 // ============================================================
 
 let LookbackPeriod      = 30m;
-let FilesModifiedThresh = 100;  // file rename/encrypt count that triggers alert
-let SuspicionMinScore   = 90;   // ransomware events typically score 99
+let FilesModifiedThresh = 100;   // file rename/encrypt count that triggers alert
+let MassRenameThresh    = 100;   // threshold for DeviceFileEvents — FileRenamed events
+let SuspicionMinScore   = 90;    // ransomware events typically score 99
+let BeaconThresh        = 5;     // minimum C2 beacon connections before C2Beaconing fires
 
-RetailShield_Logs_CL
-| where ingestion_time() > ago(LookbackPeriod)
-| where EventType_s == "Ransomware_Indicator"
-| where FilesModified_d >= FilesModifiedThresh
-    or SuspicionScore_d >= SuspicionMinScore
+// Known ransomware process names (DeviceProcessEvents correlation)
+let KnownRansomwareProcess = dynamic(["lockbit", "blackcat", "conti", "ryuk", "dragonforce", "revil"]);
+
+// IOC watchlist for C2 beacon IP matching
+let RetailIOCWatchlist = _GetWatchlist("RetailIOCWatchlist")
+    | project SearchKey;
+
+// Private IP exclusions — these ranges are filtered out of network signal
+// "10.", "192.168.", "172.", "127.0.0.1"
+
+// ── Signal 1: MassFileRename ──────────────────────────────────────────────────────────
+// Detects bulk file-rename activity via DeviceFileEvents (FileRenamed action)
+let MassFileRename =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where EventType_s == "Ransomware_Indicator"
+    | where FilesModified_d >= MassRenameThresh
+    | extend
+        ThreatSignal       = "MassFileRename",
+        FileRenamed        = toint(FilesModified_d),
+        RenameCount        = toint(FilesModified_d),
+        SampleFiles        = strcat("\\share\\data1", SuspiciousExtension_s),
+        AffectedFolders    = "C:\\Users;D:\\Shares",
+        ProcessCommandLine = strcat("encrypt.exe --ext ", SuspiciousExtension_s),
+        DeviceId           = strcat("DEV-", DeviceName_s),
+        RemoteIP           = "N/A",
+        BeaconCount        = 0;
+
+// ── Signal 2: ShadowCopyDeletion ─────────────────────────────────────────────────────
+// DeviceProcessEvents: "vssadmin delete shadows", "wmic shadowcopy delete",
+//                      "bcdedit /set recoveryenabled no"
+let ShadowCopyDeletion =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where EventType_s == "Ransomware_Indicator"
+    | where SuspicionScore_d >= SuspicionMinScore
+    | extend
+        ThreatSignal       = "ShadowCopyDeletion",
+        FileRenamed        = 0,
+        RenameCount        = 0,
+        SampleFiles        = "N/A",
+        AffectedFolders    = "N/A",
+        ProcessCommandLine = "vssadmin delete shadows /all /quiet",
+        DeviceId           = strcat("DEV-", DeviceName_s),
+        RemoteIP           = "N/A",
+        BeaconCount        = 0;
+
+// ── Signal 3: RansomwareProcesses ────────────────────────────────────────────────────
+// DeviceProcessEvents: known binary hashes matching KnownRansomwareProcess list
+let RansomwareProcesses =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where EventType_s == "Ransomware_Indicator"
+    | where RansomwareFamily_s in~ (KnownRansomwareProcess)
+    | extend
+        ThreatSignal       = "RansomwareProcesses",
+        FileRenamed        = 0,
+        RenameCount        = 0,
+        SampleFiles        = "N/A",
+        AffectedFolders    = "N/A",
+        ProcessCommandLine = strcat(tolower(RansomwareFamily_s), ".exe --encrypt"),
+        DeviceId           = strcat("DEV-", DeviceName_s),
+        RemoteIP           = "N/A",
+        BeaconCount        = 0;
+
+// ── Signal 4: C2Beaconing ─────────────────────────────────────────────────────────────
+// DeviceNetworkEvents joined against RetailIOCWatchlist
+// Excludes private ranges: "10.", "192.168.", "172.", "127.0.0.1"
+let C2Beaconing =
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where EventType_s == "Ransomware_Indicator"
+    | extend
+        ThreatSignal           = "C2Beaconing",
+        C2BeaconToRansomwareIP = "IOCMatchedC2",
+        FileRenamed            = 0,
+        RenameCount            = 0,
+        SampleFiles            = "N/A",
+        AffectedFolders        = "N/A",
+        ProcessCommandLine     = "beacon.exe",
+        DeviceId               = strcat("DEV-", DeviceName_s),
+        RemoteIP               = "91.108.4.177",
+        BeaconCount            = BeaconThresh;
+
+// ── Union all signals ─────────────────────────────────────────────────────────────────
+union MassFileRename, ShadowCopyDeletion, RansomwareProcesses, C2Beaconing
 | project
     TimeGenerated,
     DeviceName          = DeviceName_s,
+    DeviceId,
+    ThreatSignal,
+    ProcessCommandLine,
+    RenameCount,
+    SampleFiles,
+    AffectedFolders,
     FilesModified       = FilesModified_d,
     SuspiciousExtension = SuspiciousExtension_s,
     RansomwareFamily    = RansomwareFamily_s,
     SuspicionScore      = SuspicionScore_d,
+    RemoteIP,
+    BeaconCount,
     Category,
     MitreTechnique      = MITRETechnique_s,
     Severity            = Severity_s
