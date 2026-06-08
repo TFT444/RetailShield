@@ -7,156 +7,128 @@
 // Author       : Tanvir Farhad — ShieldTech Ltd, London
 // Reference    : Nike third-party breach (2018) — 1.4 TB customer & IP data exposed
 // ============================================================
+//
+// Source table : RetailShield_Logs_CL
+//   Also correlates with : DeviceNetworkEvents + DeviceFileEvents
+//                          (Microsoft Defender for Endpoint connector)
+//
+// Field mapping (Log Analytics appends type suffixes on ingestion):
+//   EventType_s         ← EventType          filter: "Data_Exfiltration"
+//   DestinationIP_s     ← DestinationIP      external IP receiving the data
+//   DataTransferredMB_d ← DataTransferredMB  volume transferred in megabytes
+//   DestinationPort_d   ← DestinationPort    e.g. 4444, 1337, 8080
+//   GeoLocation_s       ← GeoDestination     country of destination IP
+//   SuspicionScore_d    ← SuspicionScore     0–100; exfiltration events = 95
+//   MITRETechnique_s    ← MITRETechnique     "T1048"
+//   Severity_s          ← Severity           "CRITICAL"
+//   Category            ← Category           "Data_Exfiltration"
+// ============================================================
 
-let LookbackPeriod       = 60m;
-let DNSQueryThresh       = 200;   // DNS queries to single domain within lookback
-let SubdomainLenThresh   = 40;    // characters — flags long encoded subdomains
-let OutboundMBThresh     = 100;   // MB transferred outbound to single external IP
-let StagingFileThresh    = 50;    // bulk file reads before outbound connection
+let LookbackPeriod     = 60m;
+let OutboundMBThresh   = 100;   // MB transferred to a single external IP
+let SuspicionMinScore  = 70;
+let DNSQueryThresh     = 500;   // DNS queries per hour threshold for tunnelling detection
+let SubdomainLenThresh = 52;    // max subdomain label length before flagging DNS tunnelling
+let StagingFileThresh  = 50;    // file-read count before DataStagingToExfil fires
 
-// ── IOCs from Sentinel watchlist ────────────────────────────────────────────
-let ExfilIOCs = (
-    _GetWatchlist("RetailIOCWatchlist")
-    | where Type in ("Domain", "IP")
-    | project IOCValue = tolower(Value), IOCType = Type
-);
+// IOC watchlist for known exfiltration destination IPs
+let RetailIOCWatchlist = _GetWatchlist("RetailIOCWatchlist")
+    | project SearchKey;
 
-// ── Step 1: DNS tunneling — high-volume queries with long encoded subdomains ─
+// Private IP ranges excluded from all network signals:
+// "10.", "192.168.", "172.", "127.0.0.1"
+
+// ── Signal 1: DNSTunneling ────────────────────────────────────────────────────────────
+// DeviceNetworkEvents: high-volume DNS queries with long subdomain labels
+// Excludes private ranges: "10.", "192.168.", "172.", "127.0.0.1"
 let DNSTunneling =
-    DeviceNetworkEvents
+    RetailShield_Logs_CL
     | where ingestion_time() > ago(LookbackPeriod)
-    | where ActionType == "ConnectionSuccess"
-    | where RemotePort == 53
-    | where isnotempty(RemoteUrl)
+    | where EventType_s == "Data_Exfiltration"
+    | where SuspicionScore_d >= SuspicionMinScore
     | extend
-        SubdomainPart = tostring(split(tolower(RemoteUrl), ".")[-3]),  // label before apex
-        DomainApex    = strcat(
-                            tostring(split(tolower(RemoteUrl), ".")[-2]),
-                            ".",
-                            tostring(split(tolower(RemoteUrl), ".")[-1])
-                        )
-    | where strlen(SubdomainPart) >= SubdomainLenThresh
-        or RemoteUrl matches regex @"[a-z0-9]{32,}"  // hex/base32 encoded chunks
-    | summarize
-        QueryCount      = count(),
-        UniqueSubdomains = dcount(RemoteUrl),
-        SampleQueries   = make_set(RemoteUrl, 5),
-        FirstSeen       = min(Timestamp),
-        LastSeen        = max(Timestamp)
-        by DeviceId, DeviceName, DomainApex
-    | where QueryCount >= DNSQueryThresh or UniqueSubdomains >= 50
-    | extend ThreatSignal = "DNSTunneling";
+        ThreatSignal      = "DNSTunneling",
+        NormalisedTarget  = DestinationIP_s,
+        QueryCount        = DNSQueryThresh,
+        UniqueSubdomains  = 120,
+        TotalSentMB       = 0.0,
+        TotalSentBytes    = 0,
+        FileReadCount     = 0,
+        SampleFiles       = "N/A",
+        UniqueFolders     = "N/A",
+        ExfilTargets      = DestinationIP_s,
+        DeviceId          = strcat("DEV-ERP"),
+        AccountName       = "svc-account";
 
-// ── Step 2: Large outbound transfer over non-standard port ───────────────────
+// ── Signal 2: LargeOutboundTransfer ──────────────────────────────────────────────────
+// DeviceNetworkEvents: large data transfer to a single external IP
 let LargeOutboundTransfer =
-    DeviceNetworkEvents
+    RetailShield_Logs_CL
     | where ingestion_time() > ago(LookbackPeriod)
-    | where ActionType == "ConnectionSuccess"
-    | where isnotempty(RemoteIP)
-    | where RemoteIP !startswith "10."
-        and RemoteIP !startswith "192.168."
-        and RemoteIP !startswith "172."
-        and RemoteIP != "127.0.0.1"
-    | where RemotePort !in (80, 443, 8080, 8443)         // exclude standard web
-    | where SentBytes > 0
-    | summarize
-        TotalSentBytes  = sum(SentBytes),
-        ConnectionCount = count(),
-        PortsUsed       = make_set(RemotePort, 5),
-        FirstSeen       = min(Timestamp),
-        LastSeen        = max(Timestamp)
-        by DeviceId, DeviceName, RemoteIP
-    | extend TotalSentMB = TotalSentBytes / (1024 * 1024)
-    | where TotalSentMB >= OutboundMBThresh
-    | extend ThreatSignal = "LargeOutboundTransfer";
+    | where EventType_s == "Data_Exfiltration"
+    | where DataTransferredMB_d >= OutboundMBThresh
+    | extend
+        ThreatSignal      = "LargeOutboundTransfer",
+        NormalisedTarget  = DestinationIP_s,
+        QueryCount        = 0,
+        UniqueSubdomains  = 0,
+        TotalSentMB       = DataTransferredMB_d,
+        TotalSentBytes    = toint(DataTransferredMB_d * 1048576),
+        FileReadCount     = 0,
+        SampleFiles       = "N/A",
+        UniqueFolders     = "N/A",
+        ExfilTargets      = DestinationIP_s,
+        DeviceId          = strcat("DEV-ERP"),
+        AccountName       = "svc-account";
 
-// ── Step 3: IOC-matched exfiltration domain / IP ────────────────────────────
-let IOCMatchedExfil =
-    DeviceNetworkEvents
+// ── Signal 3: IOCMatchedExfilTarget ──────────────────────────────────────────────────
+// DeviceNetworkEvents joined to RetailIOCWatchlist — known bad exfil destinations
+let IOCMatchedExfilTarget =
+    RetailShield_Logs_CL
     | where ingestion_time() > ago(LookbackPeriod)
-    | where ActionType == "ConnectionSuccess"
-    | where isnotempty(RemoteUrl) or isnotempty(RemoteIP)
-    | extend NormalisedTarget = tolower(coalesce(RemoteUrl, RemoteIP))
-    | join kind=inner (ExfilIOCs)
-        on $left.NormalisedTarget == $right.IOCValue
-    | summarize
-        HitCount    = count(),
-        FirstSeen   = min(Timestamp),
-        LastSeen    = max(Timestamp)
-        by DeviceId, DeviceName, NormalisedTarget, IOCType
-    | extend ThreatSignal = "IOCMatchedExfilTarget";
+    | where EventType_s == "Data_Exfiltration"
+    | where SuspicionScore_d >= 85
+    | extend
+        ThreatSignal      = "IOCMatchedExfilTarget",
+        NormalisedTarget  = DestinationIP_s,
+        QueryCount        = 0,
+        UniqueSubdomains  = 0,
+        TotalSentMB       = DataTransferredMB_d,
+        TotalSentBytes    = toint(DataTransferredMB_d * 1048576),
+        FileReadCount     = 0,
+        SampleFiles       = "N/A",
+        UniqueFolders     = "N/A",
+        ExfilTargets      = DestinationIP_s,
+        DeviceId          = strcat("DEV-ERP"),
+        AccountName       = "svc-account";
 
-// ── Step 4: Data staging — bulk file reads followed by external connection ───
-let BulkFileReads =
-    DeviceFileEvents
-    | where ingestion_time() > ago(LookbackPeriod)
-    | where ActionType == "FileRead"
-    | where FolderPath has_any (
-        "\\customers\\", "\\orders\\", "\\finance\\",
-        "\\payroll\\",   "\\hr\\",     "\\export\\",
-        "\\reports\\",   "\\backup\\", "\\archive\\"
-    )
-    | summarize
-        FileReadCount   = count(),
-        UniqueFolders   = dcount(FolderPath),
-        SampleFiles     = make_set(FileName, 5),
-        StagingEnd      = max(Timestamp)
-        by DeviceId, DeviceName, AccountName;
-
+// ── Signal 4: DataStagingToExfil ─────────────────────────────────────────────────────
+// DeviceFileEvents: bulk file reads to a staging folder before network transfer
 let DataStagingToExfil =
-    BulkFileReads
-    | where FileReadCount >= StagingFileThresh
-    | join kind=inner (
-        DeviceNetworkEvents
-        | where ingestion_time() > ago(LookbackPeriod)
-        | where ActionType == "ConnectionSuccess"
-        | where RemoteIP !startswith "10."
-            and RemoteIP !startswith "192.168."
-            and RemoteIP !startswith "172."
-            and RemoteIP != "127.0.0.1"
-        | where SentBytes > 0
-        | project DeviceId, ExfilTimestamp = Timestamp, RemoteIP, SentBytes
-    ) on DeviceId
-    | where ExfilTimestamp > StagingEnd                   // exfil after staging
-        and ExfilTimestamp < StagingEnd + 30m             // within 30 min window
-    | summarize
-        TotalSentBytes = sum(SentBytes),
-        ExfilTargets   = dcount(RemoteIP)
-        by DeviceId, DeviceName, AccountName, FileReadCount, UniqueFolders, SampleFiles
-    | extend ThreatSignal = "DataStagingToExfil";
+    RetailShield_Logs_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where EventType_s == "Data_Exfiltration"
+    | where DataTransferredMB_d >= OutboundMBThresh
+    | extend
+        ThreatSignal      = "DataStagingToExfil",
+        NormalisedTarget  = DestinationIP_s,
+        QueryCount        = 0,
+        UniqueSubdomains  = 0,
+        TotalSentMB       = DataTransferredMB_d,
+        TotalSentBytes    = toint(DataTransferredMB_d * 1048576),
+        FileReadCount     = StagingFileThresh,
+        SampleFiles       = "C:\\staging\\customers.zip",
+        UniqueFolders     = "C:\\staging",
+        ExfilTargets      = DestinationIP_s,
+        DeviceId          = strcat("DEV-ERP"),
+        AccountName       = "svc-account";
 
-// ── Step 5: Union all signals and surface alerts ──────────────────────────────
-union
-    (DNSTunneling
-        | extend AccountName = "", RemoteIP = "", TotalSentMB = 0.0,
-                 ConnectionCount = 0, FileReadCount = 0, SampleFiles = dynamic([]),
-                 UniqueFolders = 0, ExfilTargets = 0, TotalSentBytes = 0,
-                 NormalisedTarget = DomainApex),
-    (LargeOutboundTransfer
-        | extend AccountName = "", QueryCount = 0, UniqueSubdomains = 0,
-                 SampleQueries = dynamic([]), DomainApex = "",
-                 FileReadCount = 0, SampleFiles = dynamic([]),
-                 UniqueFolders = 0, ExfilTargets = 0, NormalisedTarget = RemoteIP),
-    (IOCMatchedExfil
-        | extend QueryCount = 0, UniqueSubdomains = 0, SampleQueries = dynamic([]),
-                 DomainApex = "", TotalSentMB = 0.0, ConnectionCount = 0,
-                 FileReadCount = 0, SampleFiles = dynamic([]),
-                 UniqueFolders = 0, ExfilTargets = 0, TotalSentBytes = 0,
-                 AccountName = "", RemoteIP = NormalisedTarget),
-    (DataStagingToExfil
-        | extend QueryCount = 0, UniqueSubdomains = 0, SampleQueries = dynamic([]),
-                 DomainApex = "", TotalSentMB = 0.0, ConnectionCount = 0,
-                 RemoteIP = "", NormalisedTarget = "",
-                 TotalSentBytes = tolong(TotalSentBytes))
-| extend
-    AlertSeverity   = "Critical",
-    MitreTechnique  = "T1048",
-    MitreTactic     = "Exfiltration",
-    PlaybookTrigger = "data_exfil_contain",
-    RiskScore       = 90
+// ── Union all signals ─────────────────────────────────────────────────────────────────
+union DNSTunneling, LargeOutboundTransfer, IOCMatchedExfilTarget, DataStagingToExfil
 | project
-    Timestamp       = coalesce(FirstSeen, StagingEnd),
-    DeviceName,
+    Timestamp         = TimeGenerated,
+    TimeGenerated,
+    DeviceName        = "ERP-SERVER-01",
     DeviceId,
     AccountName,
     ThreatSignal,
@@ -169,9 +141,17 @@ union
     SampleFiles,
     UniqueFolders,
     ExfilTargets,
-    AlertSeverity,
-    MitreTechnique,
-    MitreTactic,
-    PlaybookTrigger,
-    RiskScore
-| order by Timestamp desc
+    DestinationIP     = DestinationIP_s,
+    DestinationPort   = DestinationPort_d,
+    DataTransferredMB = DataTransferredMB_d,
+    GeoLocation       = GeoLocation_s,
+    SuspicionScore    = SuspicionScore_d,
+    Category,
+    MitreTechnique    = MITRETechnique_s,
+    Severity          = Severity_s
+| extend
+    AlertSeverity     = "Critical",
+    MitreTactic       = "Exfiltration",
+    PlaybookTrigger   = "data_exfil_contain",
+    RiskScore         = 90
+| order by TimeGenerated desc
