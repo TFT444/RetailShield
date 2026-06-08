@@ -7,125 +7,45 @@
 // Author       : Tanvir Farhad — ShieldTech Ltd, London
 // Reference    : M&S supply-chain ransomware attack (2025) — £300M impact
 // ============================================================
+//
+// Source table : RetailShield_Logs_CL
+//   Replaces   : DeviceFileEvents + DeviceProcessEvents + DeviceNetworkEvents
+//                (Microsoft Defender for Endpoint connector)
+//
+// Field mapping (Log Analytics appends type suffixes on ingestion):
+//   EventType_s          ← EventType           filter: "Ransomware_Indicator"
+//   DeviceName_s         ← DeviceName          affected endpoint hostname
+//   FilesModified_d      ← FilesModified       count of renamed/encrypted files
+//   SuspiciousExtension_s ← SuspiciousExtension e.g. ".encrypted", ".locked", ".dragon"
+//   RansomwareFamily_s   ← RansomwareFamily    e.g. "DragonForce", "LockBit", "BlackCat"
+//   SuspicionScore_d     ← SuspicionScore      0–100; ransomware events = 99
+//   MITRETechnique_s     ← MITRETechnique      "T1486"
+//   Severity_s           ← Severity            "CRITICAL"
+//   Category             ← Category            "Ransomware_Indicator"
+// ============================================================
 
-let LookbackPeriod    = 30m;
-let MassRenameThresh  = 100;   // file renames within the lookback window
-let BeaconThresh      = 20;    // outbound connections to a single external IP
+let LookbackPeriod      = 30m;
+let FilesModifiedThresh = 100;  // file rename/encrypt count that triggers alert
+let SuspicionMinScore   = 90;   // ransomware events typically score 99
 
-// ── IOCs from Sentinel watchlist ────────────────────────────────────────────
-let RansomwareIOCs = (
-    _GetWatchlist("RetailIOCWatchlist")
-    | where Type in ("IP", "Domain", "Hash")
-    | project IOCValue = tolower(Value), IOCType = Type
-);
-
-// ── Step 1: Mass file rename / encryption staging ────────────────────────────
-let MassFileRename =
-    DeviceFileEvents
-    | where ingestion_time() > ago(LookbackPeriod)
-    | where ActionType in ("FileRenamed", "FileCreated")
-    | where isnotempty(FileName)
-    | extend
-        OriginalExtension = tolower(tostring(split(PreviousFileName, ".")[-1])),
-        NewExtension      = tolower(tostring(split(FileName, ".")[-1]))
-    | where OriginalExtension != NewExtension                         // extension changed
-        and NewExtension !in ("tmp", "bak", "log", "lnk", "ini")    // exclude benign
-    | summarize
-        RenameCount    = count(),
-        SampleFiles    = make_set(FileName, 5),
-        AffectedFolders = dcount(FolderPath)
-        by DeviceId, DeviceName, bin(Timestamp, 5m)
-    | where RenameCount >= MassRenameThresh
-    | extend ThreatSignal = "MassFileRename";
-
-// ── Step 2: Shadow copy deletion commands ────────────────────────────────────
-let ShadowCopyDeletion =
-    DeviceProcessEvents
-    | where ingestion_time() > ago(LookbackPeriod)
-    | where ProcessCommandLine has_any (
-        "vssadmin delete shadows",
-        "vssadmin.exe delete",
-        "wmic shadowcopy delete",
-        "wbadmin delete catalog",
-        "bcdedit /set recoveryenabled no",
-        "bcdedit /set bootstatuspolicy ignoreallfailures",
-        "diskshadow /s",
-        "Get-WmiObject Win32_ShadowCopy"
-    )
-    | project
-        Timestamp,
-        DeviceId,
-        DeviceName,
-        AccountName,
-        InitiatingProcessFileName,
-        ProcessCommandLine,
-        ThreatSignal = "ShadowCopyDeletion";
-
-// ── Step 3: Known ransomware process names ────────────────────────────────────
-let RansomwareProcesses =
-    DeviceProcessEvents
-    | where ingestion_time() > ago(LookbackPeriod)
-    | where FileName has_any (
-        "ryuk", "conti", "lockbit", "blackcat", "alphv",
-        "revil", "sodinokibi", "darkside", "blackmatter",
-        "hive", "clop", "maze", "egregor", "ragnar"
-    )
-    | project
-        Timestamp,
-        DeviceId,
-        DeviceName,
-        AccountName,
-        InitiatingProcessFileName,
-        ProcessCommandLine,
-        ThreatSignal = "KnownRansomwareProcess";
-
-// ── Step 4: C2 beacon — high-frequency connections to single external IP ─────
-let C2Beaconing =
-    DeviceNetworkEvents
-    | where ingestion_time() > ago(LookbackPeriod)
-    | where ActionType == "ConnectionSuccess"
-    | where isnotempty(RemoteIP)
-    | where RemoteIP !startswith "10."
-        and RemoteIP !startswith "192.168."
-        and RemoteIP !startswith "172."
-        and RemoteIP != "127.0.0.1"
-    | join kind=inner (RansomwareIOCs | where IOCType == "IP")
-        on $left.RemoteIP == $right.IOCValue
-    | summarize
-        BeaconCount   = count(),
-        FirstSeen     = min(Timestamp),
-        LastSeen      = max(Timestamp)
-        by DeviceId, DeviceName, RemoteIP, RemotePort
-    | where BeaconCount >= BeaconThresh
-    | extend ThreatSignal = "C2BeaconToRansomwareIP";
-
-// ── Step 5: Union all signals and surface alerts ──────────────────────────────
-union
-    (MassFileRename    | extend ProcessCommandLine = "", AccountName = "", RemoteIP = ""),
-    (ShadowCopyDeletion | extend RenameCount = 0, SampleFiles = dynamic([]), AffectedFolders = 0, RemoteIP = "", BeaconCount = 0),
-    (RansomwareProcesses | extend RenameCount = 0, SampleFiles = dynamic([]), AffectedFolders = 0, RemoteIP = "", BeaconCount = 0),
-    (C2Beaconing        | extend ProcessCommandLine = "", AccountName = "", InitiatingProcessFileName = "", RenameCount = 0, SampleFiles = dynamic([]), AffectedFolders = 0)
-| extend
-    AlertSeverity    = "Critical",
-    MitreTechnique   = "T1486",
-    MitreTactic      = "Impact",
-    PlaybookTrigger  = "isolate_endpoint",
-    RiskScore        = 100
+RetailShield_Logs_CL
+| where ingestion_time() > ago(LookbackPeriod)
+| where EventType_s == "Ransomware_Indicator"
+| where FilesModified_d >= FilesModifiedThresh
+    or SuspicionScore_d >= SuspicionMinScore
 | project
-    Timestamp,
-    DeviceName,
-    DeviceId,
-    AccountName,
-    ThreatSignal,
-    ProcessCommandLine,
-    RenameCount,
-    SampleFiles,
-    AffectedFolders,
-    RemoteIP,
-    BeaconCount,
-    AlertSeverity,
-    MitreTechnique,
-    MitreTactic,
-    PlaybookTrigger,
-    RiskScore
-| order by Timestamp desc
+    TimeGenerated,
+    DeviceName          = DeviceName_s,
+    FilesModified       = FilesModified_d,
+    SuspiciousExtension = SuspiciousExtension_s,
+    RansomwareFamily    = RansomwareFamily_s,
+    SuspicionScore      = SuspicionScore_d,
+    Category,
+    MitreTechnique      = MITRETechnique_s,
+    Severity            = Severity_s
+| extend
+    AlertSeverity       = "Critical",
+    MitreTactic         = "Impact",
+    PlaybookTrigger     = "isolate_endpoint",
+    RiskScore           = 100
+| order by TimeGenerated desc
