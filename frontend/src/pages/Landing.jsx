@@ -169,7 +169,13 @@ export default function Landing({ onDemo, onSignIn }) {
           >
             GitHub <ExternalLink size={11} />
           </a>
-          <span style={{ fontSize:'12px', color:'var(--text-dim)' }}>OWASP ref NFRSD-7408</span>
+          <a href="https://doi.org/10.5281/zenodo.20608262" target="_blank" rel="noopener noreferrer"
+            style={{ fontSize:'12px', color:'var(--text-dim)', textDecoration:'none', display:'flex', alignItems:'center', gap:'4px', minHeight:'32px' }}
+            onMouseEnter={e => e.currentTarget.style.color='var(--text-muted)'}
+            onMouseLeave={e => e.currentTarget.style.color='var(--text-dim)'}
+          >
+            10.5281/zenodo.20608262 <ExternalLink size={11} />
+          </a>
         </div>
       </footer>
     </div>
