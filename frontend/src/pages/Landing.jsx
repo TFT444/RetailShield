@@ -80,13 +80,13 @@ export default function Landing({ onDemo, onSignIn }) {
           color:'var(--text)', maxWidth:'720px', letterSpacing:'-0.03em',
           marginBottom:'18px',
         }}>
-          Retail Cyber Defence for{' '}
-          <span style={{ color:'var(--primary)' }}>Microsoft Sentinel</span>
+          Retail Cyber Defence{' '}
+          <span style={{ color:'var(--primary)' }}>and Loss Prevention</span>
         </h1>
 
-        <p style={{ fontSize:'clamp(15px,2vw,18px)', color:'var(--text-muted)', maxWidth:'540px', lineHeight:1.65, marginBottom:'36px' }}>
-          19 production-ready KQL detection rules covering the full MITRE ATT&CK kill chain —
-          built for UK retail organisations under ICO and NCSC reporting obligations.
+        <p style={{ fontSize:'clamp(15px,2vw,18px)', color:'var(--text-muted)', maxWidth:'600px', lineHeight:1.65, marginBottom:'36px' }}>
+          Protecting UK retailers from cyber attacks, POS fraud, supply chain compromise, and financial loss —
+          built on Microsoft Sentinel, the security platform already included in most Microsoft 365 subscriptions.
         </p>
 
         <div style={{ display:'flex', gap:'12px', flexWrap:'wrap', justifyContent:'center' }}>
