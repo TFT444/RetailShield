@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Shield, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function Login({ onSuccess, onDemo }) {
   const [email,    setEmail]    = useState('');
@@ -38,9 +38,7 @@ export default function Login({ onSuccess, onDemo }) {
 
           {/* Logo */}
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'8px', marginBottom:'28px' }}>
-            <div style={{ width:'48px', height:'48px', borderRadius:'12px', background:'var(--primary-dim)', border:'1px solid rgba(37,99,235,0.25)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <Shield size={24} color="var(--primary)" strokeWidth={2} />
-            </div>
+            <img src="/retailshield_logo.png" alt="RetailShield" width="80" style={{ marginBottom:'8px' }} />
             <div style={{ textAlign:'center' }}>
               <div style={{ fontSize:'18px', fontWeight:700, color:'var(--text)', letterSpacing:'-0.02em' }}>RetailShield</div>
               <div style={{ fontSize:'12px', color:'var(--text-dim)', marginTop:'2px' }}>ShieldTech Ltd · SOC Platform</div>

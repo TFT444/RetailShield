@@ -29,7 +29,7 @@ export default function Landing({ onDemo, onSignIn }) {
         borderBottom:'1px solid var(--border)',
       }}>
         <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-          <Shield size={20} color="var(--primary)" strokeWidth={2} />
+          <img src="/retailshield_logo.png" alt="RetailShield" width="28" style={{ display:'block' }} />
           <span style={{ fontSize:'16px', fontWeight:700, color:'var(--text)', letterSpacing:'-0.02em' }}>RetailShield</span>
         </div>
 
@@ -64,6 +64,8 @@ export default function Landing({ onDemo, onSignIn }) {
         textAlign:'center', padding:'clamp(48px,8vw,96px) clamp(16px,4vw,48px) clamp(48px,6vw,80px)',
         background:'radial-gradient(ellipse 800px 400px at 50% 0%, rgba(37,99,235,0.06) 0%, transparent 70%)',
       }}>
+        <img src="/retailshield_logo.png" alt="RetailShield" width="100" style={{ marginBottom:'24px' }} />
+
         {/* Live pill */}
         <div style={{
           display:'inline-flex', alignItems:'center', gap:'6px',

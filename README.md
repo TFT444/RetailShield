@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="retailshield_logo.png" width="120" alt="RetailShield Logo">
+</p>
+
 # RetailShield
 
 [![CI](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml/badge.svg)](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml)
