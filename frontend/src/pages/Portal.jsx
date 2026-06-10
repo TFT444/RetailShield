@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Shield, Activity, Search, FileCheck, BookOpen,
+  Activity, Search, FileCheck, BookOpen,
   ShoppingCart, Link2, LogOut, User, ChevronRight, Clock, Menu,
 } from 'lucide-react';
 import { useBreakpoint } from '../lib/hooks.js';
@@ -42,8 +42,7 @@ export default function Portal({ nav, incidents, onSignOut }) {
             </button>
           )}
           <div style={{ display:'flex', alignItems:'center', gap:'7px' }}>
-            <Shield size={18} color="var(--primary)" strokeWidth={2} />
-            <span style={{ fontSize:'15px', fontWeight:700, color:'var(--text)', letterSpacing:'-0.02em', whiteSpace:'nowrap' }}>RetailShield</span>
+            <img src="/retailshield_logo.png" alt="RetailShield" width="36" style={{ display:'block' }} />
           </div>
         </div>
 
