@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import {
   Activity, AlertTriangle, Shield, Zap, Clock, Check,
@@ -107,18 +107,24 @@ export default function ThreatDetection({ onBack, nav, incidents, setIncidents }
     return () => clearInterval(t);
   }, []);
 
+  const lastScenario = useRef(-1);
+
   const runSim = useCallback(() => {
     if (simulating) return;
     setSimulating(true);
-    ATTACK_SIM_EVENTS.forEach((evt, i) => {
-      setTimeout(() => {
-        setIncidents(prev => {
-          if (prev.find(x => x.id === evt.id)) return prev;
-          return [{ ...evt, detectedAt: new Date().toISOString() }, ...prev];
-        });
-        if (i === ATTACK_SIM_EVENTS.length - 1) setSimulating(false);
-      }, (i + 1) * 800);
-    });
+    let idx = Math.floor(Math.random() * ATTACK_SIM_EVENTS.length);
+    if (ATTACK_SIM_EVENTS.length > 1 && idx === lastScenario.current) {
+      idx = (idx + 1) % ATTACK_SIM_EVENTS.length;
+    }
+    lastScenario.current = idx;
+    const scenario = ATTACK_SIM_EVENTS[idx];
+    setTimeout(() => {
+      setIncidents(prev => {
+        const maxNum = prev.reduce((m, i) => Math.max(m, parseInt(i.id.slice(4), 10) || 0), 2849);
+        return [{ ...scenario, id: `INC-${maxNum + 1}`, detectedAt: new Date().toISOString() }, ...prev];
+      });
+      setSimulating(false);
+    }, 800);
   }, [simulating, setIncidents]);
 
   const handleGenerate = () => {
