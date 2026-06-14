@@ -1,2 +1,69 @@
-// MITRE ATT&CK: T1110 — Brute Force
-// Placeholder: detection logic to be implemented
+// ============================================================
+// RetailShield — Brute Force Login Detection Rule
+// MITRE ATT&CK : T1110 — Brute Force
+// Tactic       : Credential Access
+// Severity     : High
+// Frequency    : Every 5 minutes | Lookback: 30 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : NCSC guidance on password attack mitigations;
+//                threshold of 10 failures aligns with OWASP
+//                Account Lockout Cheat Sheet recommendation.
+// ============================================================
+//
+// Source table : SigninLogs
+//   Detects high-volume failed authentication attempts from a
+//   single IP in a short window — covers both single-account
+//   brute force and multi-account password spraying campaigns.
+//
+// Field reference:
+//   ResultType "0"   = Successful sign-in (excluded)
+//   ResultType 50076 = MFA required but not completed (not a failure)
+//   ResultType 50079 = MFA interrupt (not a failure)
+//   ResultType 50074 = Strong authentication required (not a failure)
+// ============================================================
+
+let LookbackPeriod   = 30m;
+let FailureThreshold = 10;  // alert when >= 10 failures from one source IP
+
+SigninLogs
+| where TimeGenerated > ago(LookbackPeriod)
+| where ResultType != "0"
+| where ResultType !in ("50076", "50079", "50074")
+| summarize
+    FailureCount     = count(),
+    DistinctAccounts = dcount(UserPrincipalName),
+    AffectedAccounts = make_set(UserPrincipalName, 10),
+    ResultCodes      = make_set(ResultType),
+    FirstSeen        = min(TimeGenerated),
+    LastSeen         = max(TimeGenerated)
+    by IPAddress, AppDisplayName, ClientAppUsed, Location
+| where FailureCount >= FailureThreshold
+| extend
+    DurationMinutes  = datetime_diff("minute", LastSeen, FirstSeen),
+    AttackCategory   = iff(DistinctAccounts == 1,
+                           "Brute Force (Single Account)",
+                           "Password Spray (Multiple Accounts)"),
+    AlertSeverity    = iff(FailureCount >= 50 or DistinctAccounts >= 5, "High", "Medium"),
+    MitreTechnique   = "T1110",
+    MitreTactic      = "Credential Access",
+    PlaybookTrigger  = "block_ip_and_notify_soc",
+    RiskScore        = iff(FailureCount >= 50, 85, 65)
+| project
+    FirstSeen,
+    LastSeen,
+    IPAddress,
+    AppDisplayName,
+    ClientAppUsed,
+    Location,
+    FailureCount,
+    DistinctAccounts,
+    AffectedAccounts,
+    ResultCodes,
+    DurationMinutes,
+    AttackCategory,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by FailureCount desc

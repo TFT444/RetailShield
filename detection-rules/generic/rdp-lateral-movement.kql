@@ -1,2 +1,66 @@
-// MITRE ATT&CK: T1021.001 — Remote Services: Remote Desktop Protocol
-// Placeholder: detection logic to be implemented
+// ============================================================
+// RetailShield — RDP Lateral Movement Detection Rule
+// MITRE ATT&CK : T1021.001 — Remote Services: Remote Desktop Protocol
+// Tactic       : Lateral Movement
+// Severity     : High
+// Frequency    : Every 5 minutes | Lookback: 30 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : MITRE ATT&CK T1021.001; EventID 4624 Logon Type 10
+//                is the canonical Windows signal for RDP session
+//                establishment (source: Microsoft Security Auditing guide).
+// ============================================================
+//
+// Source table : SecurityEvent
+//   Detects RDP-based lateral movement by correlating Windows Security
+//   Event Log entries for successful (4624) and failed (4625) logons
+//   with Logon Type 10 (RemoteInteractive / RDP).
+//
+//   Alert fires when:
+//   - One source IP or workstation reaches >= 3 distinct RDP targets, OR
+//   - One source generates >= 5 RDP authentication failures
+// ============================================================
+
+let LookbackPeriod   = 30m;
+let TargetThreshold  = 3;  // distinct destination hosts from one source
+let FailureThreshold = 5;  // failed RDP logon attempts from one source
+
+SecurityEvent
+| where TimeGenerated > ago(LookbackPeriod)
+| where EventID in (4624, 4625)
+| where LogonType == 10
+| summarize
+    TotalAttempts    = count(),
+    Successes        = countif(EventID == 4624),
+    Failures         = countif(EventID == 4625),
+    DistinctTargets  = dcount(Computer),
+    TargetHosts      = make_set(Computer, 10),
+    Accounts         = make_set(Account, 10),
+    FirstSeen        = min(TimeGenerated),
+    LastSeen         = max(TimeGenerated)
+    by IpAddress, WorkstationName
+| where DistinctTargets >= TargetThreshold or Failures >= FailureThreshold
+| extend
+    DurationMinutes  = datetime_diff("minute", LastSeen, FirstSeen),
+    AlertSeverity    = iff(DistinctTargets >= 5 or Successes >= 3, "Critical", "High"),
+    MitreTechnique   = "T1021.001",
+    MitreTactic      = "Lateral Movement",
+    PlaybookTrigger  = "isolate_source_and_notify_soc",
+    RiskScore        = iff(DistinctTargets >= 5, 90, 72)
+| project
+    FirstSeen,
+    LastSeen,
+    IpAddress,
+    WorkstationName,
+    TotalAttempts,
+    Successes,
+    Failures,
+    DistinctTargets,
+    TargetHosts,
+    Accounts,
+    DurationMinutes,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by DistinctTargets desc, Failures desc

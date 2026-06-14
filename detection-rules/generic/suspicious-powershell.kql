@@ -1,2 +1,86 @@
-// MITRE ATT&CK: T1059.001 — Command and Scripting Interpreter: PowerShell
-// Placeholder: detection logic to be implemented
+// ============================================================
+// RetailShield — Suspicious PowerShell Detection Rule
+// MITRE ATT&CK : T1059.001 — Command and Scripting Interpreter: PowerShell
+// Tactic       : Execution
+// Severity     : High
+// Frequency    : Every 5 minutes | Lookback: 30 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : MITRE ATT&CK T1059.001; token list covers known
+//                malicious patterns from Cobalt Strike, Empire,
+//                PowerSploit, and AMSI bypass PoCs as catalogued
+//                in the NCSC Malware Analysis Report 2024.
+// ============================================================
+//
+// Source table : SecurityEvent
+//   Detects malicious PowerShell execution via Windows Security
+//   Event 4688 (Process Creation). Matches against a curated token
+//   list covering encoded commands, download cradles, execution
+//   policy bypass flags, and AMSI bypass strings.
+//
+// Process names covered:
+//   powershell.exe     — Windows PowerShell 5.x
+//   pwsh.exe           — PowerShell 7+ (cross-platform)
+//   powershell_ise.exe — PowerShell ISE
+// ============================================================
+
+let LookbackPeriod    = 30m;
+let SuspiciousTokens  = dynamic([
+    "-encodedcommand", "-enc ",
+    "iex ", "invoke-expression",
+    "downloadstring", "downloadfile",
+    "new-object net.webclient",
+    "system.net.webclient",
+    "-executionpolicy bypass",
+    "-noprofile -noninteractive",
+    "bypass -noprofile",
+    "frombase64string",
+    "[system.convert]::frombase64",
+    "amsiinitfailed",
+    "amsiscanbuffer"
+]);
+
+SecurityEvent
+| where TimeGenerated > ago(LookbackPeriod)
+| where EventID == 4688
+| where Process has_any ("powershell.exe", "pwsh.exe", "powershell_ise.exe")
+| extend CommandLineLower = tolower(CommandLine)
+| where CommandLineLower has_any (SuspiciousTokens)
+| extend
+    IsEncoded      = CommandLineLower has "-encodedcommand" or CommandLineLower has " -enc ",
+    IsDownload     = CommandLineLower has "downloadstring"
+                     or CommandLineLower has "downloadfile"
+                     or CommandLineLower has "webclient",
+    IsBypassPolicy = CommandLineLower has "-executionpolicy bypass",
+    IsAmsiBypas    = CommandLineLower has "amsiinitfailed"
+                     or CommandLineLower has "amsiscanbuffer"
+| extend
+    ThreatCategory = case(
+        IsAmsiBypas,                  "AMSI Bypass Attempt",
+        IsEncoded and IsDownload,     "Encoded Download Cradle",
+        IsEncoded,                    "Encoded Command",
+        IsDownload,                   "Download Cradle",
+        IsBypassPolicy,               "Execution Policy Bypass",
+                                      "Suspicious PowerShell"
+    ),
+    AlertSeverity  = iff(IsAmsiBypas or (IsEncoded and IsDownload), "Critical", "High"),
+    MitreTechnique = "T1059.001",
+    MitreTactic    = "Execution",
+    PlaybookTrigger = "quarantine_process_and_notify_soc",
+    RiskScore      = iff(IsAmsiBypas or (IsEncoded and IsDownload), 95, 75)
+| project
+    TimeGenerated,
+    Computer,
+    Account,
+    Process,
+    CommandLine,
+    ThreatCategory,
+    IsEncoded,
+    IsDownload,
+    IsBypassPolicy,
+    IsAmsiBypas,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by RiskScore desc, TimeGenerated desc
