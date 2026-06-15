@@ -1,2 +1,69 @@
-// MITRE ATT&CK: T1041 — Exfiltration Over C2 Channel
-// Placeholder: detection logic to be implemented
+// ============================================================
+// RetailShield — C2 Beacon Detection Rule
+// MITRE ATT&CK : T1041 — Exfiltration Over C2 Channel
+// Tactic       : Exfiltration
+// Severity     : Critical
+// Frequency    : Every 5 minutes | Lookback: 1 hour
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : MITRE ATT&CK T1041; CobaltStrike and Sliver C2
+//                default beacon intervals produce ≥ 8 connections/hr.
+//                High-risk port list covers common C2 staging ports
+//                seen in NCSC incident reports 2023-2025.
+// ============================================================
+//
+// Source table : CommonSecurityLog
+//   Detects regular periodic outbound connections consistent with
+//   C2 beacon behaviour — high connection counts to a single external
+//   IP, particularly on high-risk staging ports.
+//
+//   RFC-1918 private ranges are excluded from destination matching
+//   to reduce false positives from internal management traffic.
+// ============================================================
+
+let LookbackPeriod   = 1h;
+let BeaconThreshold  = 8;  // >= 8 outbound connections to one IP suggests beaconing
+let HighRiskPorts    = dynamic([4444, 4445, 1337, 31337, 8888, 9001, 9002, 6666, 6667, 443, 80]);
+
+CommonSecurityLog
+| where TimeGenerated > ago(LookbackPeriod)
+| where CommunicationDirection == "Outbound"
+| where DestinationIP !startswith "10."
+    and DestinationIP !startswith "192.168."
+    and not(DestinationIP matches regex @"^172\.(1[6-9]|2[0-9]|3[01])\.")
+    and DestinationIP != "127.0.0.1"
+| summarize
+    ConnectionCount  = count(),
+    BytesSent        = sum(SentBytes),
+    BytesReceived    = sum(ReceivedBytes),
+    Ports            = make_set(DestinationPort),
+    Protocols        = make_set(Protocol),
+    FirstSeen        = min(TimeGenerated),
+    LastSeen         = max(TimeGenerated)
+    by SourceIP, DestinationIP, DeviceAction
+| where ConnectionCount >= BeaconThreshold
+| extend
+    IsHighRiskPort   = array_length(set_intersect(Ports, HighRiskPorts)) > 0,
+    TotalMB          = round(toreal(BytesSent + BytesReceived) / 1048576.0, 2),
+    DurationMinutes  = datetime_diff("minute", LastSeen, FirstSeen),
+    AlertSeverity    = iff(IsHighRiskPort, "Critical", "High"),
+    MitreTechnique   = "T1041",
+    MitreTactic      = "Exfiltration",
+    PlaybookTrigger  = "block_destination_and_isolate_source",
+    RiskScore        = iff(IsHighRiskPort, 95, 75)
+| project
+    FirstSeen,
+    LastSeen,
+    SourceIP,
+    DestinationIP,
+    ConnectionCount,
+    Ports,
+    Protocols,
+    TotalMB,
+    DurationMinutes,
+    IsHighRiskPort,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by RiskScore desc, ConnectionCount desc

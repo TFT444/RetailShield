@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="retailshield_logo.png" width="120" alt="RetailShield Logo">
+</p>
+
 # RetailShield
 
 [![CI](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml/badge.svg)](https://github.com/TFT444/RetailShield/actions/workflows/ci.yml)
@@ -64,41 +68,62 @@ RetailShield closes that gap.
 
 ## Architecture
 
-RetailShield is content that sits on top of Microsoft Sentinel. The platform does the heavy lifting (log ingestion, correlation, incident management). RetailShield contributes the retail-aware detection logic and automated response.
-
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│                      RETAIL DATA SOURCES                           │
-│   POS Systems  │  ERP / SAP  │  Azure AD  │  Cloud Apps  │  EDR   │
-└───────────────────────────────┬────────────────────────────────────┘
-                                │  Log ingestion via Data Connectors
-                                ↓
-┌────────────────────────────────────────────────────────────────────┐
-│                   MICROSOFT SENTINEL (platform)                    │
-│                                                                    │
-│  ┌─────────────────────────────────────────────────────────────┐  │
-│  │              RETAILSHIELD CONTENT PACK                      │  │
-│  │                                                             │  │
-│  │  ┌───────────────────┐   ┌──────────────────────────────┐  │  │
-│  │  │  KQL Analytics    │   │  Azure Logic App Playbooks   │  │  │
-│  │  │  Rules            │──▶│                              │  │  │
-│  │  │  (detection-rules/│   │  triage-classify             │  │  │
-│  │  │   retail/ +       │   │  threat-intel-enrich         │  │  │
-│  │  │   generic/)       │   │  containment                 │  │  │
-│  │  └───────────────────┘   └──────────────────────────────┘  │  │
-│  │                                                             │  │
-│  │  ┌───────────────────┐   ┌──────────────────────────────┐  │  │
-│  │  │  Sentinel         │   │  Watchlists                  │  │  │
-│  │  │  Workbook         │   │  (IOCs, Suppliers,           │  │  │
-│  │  │  (dashboard)      │   │   Service Accounts)          │  │  │
-│  │  └───────────────────┘   └──────────────────────────────┘  │  │
-│  └─────────────────────────────────────────────────────────────┘  │
-│                                                                    │
-│           Sentinel Incident Engine  │  Fusion  │  UEBA             │
-└────────────────────────────────────────────────────────────────────┘
-```
+                      RETAILSHIELD
+    Retail-specific threat detection & automated response
+             built natively for Microsoft Sentinel
 
-All four content types (rules, playbooks, workbook, watchlists) are deployed into the same Sentinel workspace. They interoperate natively — a KQL rule fires an alert, Sentinel creates an incident, and the Logic App playbook is triggered automatically.
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. RETAIL DATA SOURCES                                          │
+│ POS/Till · Identity (Azure AD) · Email/M365 · Network/Firewall │
+│ Endpoints · Supply Chain & Suppliers                            │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ INGESTION → Microsoft Sentinel Log Analytics Workspace          │
+│ Standard tables + custom POS table (HMAC-SHA256 signed)         │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. DETECTION — 20 KQL rules mapped to MITRE ATT&CK             │
+│                                                                 │
+│ Retail-specific (14): gift-card fraud · POS void/refund ·      │
+│ credential stuffing · MFA fatigue · phishing · ransomware ·    │
+│ supplier compromise · data exfil · AI voice fraud · POS        │
+│ anomaly · privileged role abuse · after-hours · impossible      │
+│ travel · TLS downgrade (PCI)                                    │
+│                                                                 │
+│ Generic SOC (6): brute force · bulk file access · C2 beacon ·  │
+│ DNS exfil · RDP lateral movement · suspicious PowerShell        │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+               Sentinel correlates alerts → INCIDENT (IP · account · host)
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 3. AUTOMATED RESPONSE & MITIGATION — 8 Logic App playbooks     │
+│                                                                 │
+│  ┌────────────────┐  ┌────────────────┐  ┌──────────────────┐  │
+│  │    STEP 1      │──▶    STEP 2      │──▶     STEP 3       │  │
+│  │   Triage &     │  │   Contain /    │  │  UK Compliance   │  │
+│  │    Enrich      │  │    Mitigate    │  │    Assistant     │  │
+│  │                │  │                │  │                  │  │
+│  │  classify +    │  │   block IP ·   │  │  NCSC 24h +      │  │
+│  │  severity ·    │  │ disable acct · │  │  ICO 72h tracking│  │
+│  │  threat-intel  │  │ isolate host   │  │  · drafts report │  │
+│  │ (VT/AbuseIPDB) │  │   (Defender)   │  │  (assists human) │  │
+│  └────────────────┘  └────────────────┘  └──────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+
+MODULES: [Threat Detection: LIVE] [Compliance Centre: LIVE] [Vulnerability Scanner: LIVE]
+         [Loss Prevention: PLANNED] [ChainShield: PLANNED]
+
+Validated in a controlled lab · published methodology (DOI 10.5281/zenodo.20608262) · avg ~22 min MTTD
+A Sentinel-native content pack — not a standalone SIEM.
+```
 
 ---
 

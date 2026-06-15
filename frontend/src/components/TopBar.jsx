@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Shield, ArrowLeft, Menu } from 'lucide-react';
+import { ArrowLeft, Menu } from 'lucide-react';
 import { useBreakpoint } from '../lib/hooks.js';
 import MobileDrawer from './MobileDrawer.jsx';
 
@@ -28,8 +28,7 @@ export default function TopBar({ moduleName, onBack, nav, currentRoute }) {
             </button>
           ) : (
             <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-              <Shield size={17} color="var(--primary)" strokeWidth={2} />
-              <span style={{ fontSize:'13px', fontWeight:700, color:'var(--text)', letterSpacing:'-0.01em' }}>RetailShield</span>
+              <img src="/retailshield_logo.png" alt="RetailShield" width="28" style={{ display:'block' }} />
               <span style={{ color:'var(--border)', fontSize:'13px' }}>/</span>
             </div>
           )}
