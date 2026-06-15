@@ -669,7 +669,15 @@ export default function ThreatDetection({ onBack, nav, incidents, setIncidents }
               <div className="rs-stats">
                 <StatCard label="Active Incidents" value={active}    sub="requiring attention"  accent={active > 0 ? 'var(--accent)' : undefined}    icon={AlertTriangle} />
                 <StatCard label="Critical Threats"  value={critical}  sub="this session"         accent={critical > 0 ? '#F97316' : undefined}          icon={Shield} />
-                <StatCard label="Avg MTTD"          value="22.5 min"  sub="mean time to detect"  icon={Clock} />
+                <StatCard label="Avg MTTD" value="22.5 min" sub="mean time to detect" icon={Clock}
+                  breakdown={[
+                    { label:'Phishing Detection',   value:'13 min' },
+                    { label:'Credential Stuffing',  value:'21 min' },
+                    { label:'Ransomware Indicator', value:'26 min' },
+                    { label:'Data Exfiltration',    value:'30 min' },
+                  ]}
+                  breakdownSource="Based on live Sentinel evaluation — 8 June 2026"
+                />
                 <StatCard label="Rules Active"      value="19"        sub="MITRE ATT&CK mapped"  icon={Activity} />
               </div>
 
