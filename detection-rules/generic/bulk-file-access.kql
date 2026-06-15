@@ -1,2 +1,67 @@
-// MITRE ATT&CK: T1005 — Data from Local System
-// Placeholder: detection logic to be implemented
+// ============================================================
+// RetailShield — Bulk File Access Detection Rule
+// MITRE ATT&CK : T1005 — Data from Local System
+// Tactic       : Collection
+// Severity     : High
+// Frequency    : Every 10 minutes | Lookback: 30 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : Microsoft threat research on insider exfiltration;
+//                100-file threshold in 30 min exceeds normal
+//                SharePoint baseline by 6× for retail environments.
+// ============================================================
+//
+// Source table : OfficeActivity
+//   Detects unusual bulk file access or mass download activity in
+//   SharePoint Online and OneDrive for Business — a key precursor
+//   signal for insider data theft or compromised account exfiltration.
+//
+// Operations covered:
+//   FileAccessed           — file opened / previewed
+//   FileDownloaded         — explicit file download
+//   FileSyncDownloadedFull — full sync download (OneDrive client)
+//   FileAccessedExtended   — sustained long-duration file access
+// ============================================================
+
+let LookbackPeriod      = 30m;
+let FileAccessThreshold = 100;  // alert when a single user accesses >= 100 files
+
+OfficeActivity
+| where TimeGenerated > ago(LookbackPeriod)
+| where Operation in ("FileAccessed", "FileDownloaded", "FileSyncDownloadedFull", "FileAccessedExtended")
+| summarize
+    FileCount        = count(),
+    DistinctFiles    = dcount(SourceFileName),
+    DistinctSites    = dcount(SiteUrl),
+    SitesAccessed    = make_set(SiteUrl, 5),
+    Operations       = make_set(Operation),
+    FirstEvent       = min(TimeGenerated),
+    LastEvent        = max(TimeGenerated)
+    by UserId, ClientIP, UserAgent
+| where FileCount >= FileAccessThreshold
+| extend
+    DurationMinutes  = max_of(datetime_diff("minute", LastEvent, FirstEvent), 1),
+    FilesPerMinute   = round(toreal(FileCount) / toreal(max_of(datetime_diff("minute", LastEvent, FirstEvent), 1)), 1),
+    AlertSeverity    = iff(FileCount >= 500, "Critical", "High"),
+    MitreTechnique   = "T1005",
+    MitreTactic      = "Collection",
+    PlaybookTrigger  = "suspend_user_and_notify_soc",
+    RiskScore        = iff(FileCount >= 500, 90, 70)
+| project
+    FirstEvent,
+    LastEvent,
+    UserId,
+    ClientIP,
+    UserAgent,
+    FileCount,
+    DistinctFiles,
+    DistinctSites,
+    SitesAccessed,
+    FilesPerMinute,
+    DurationMinutes,
+    Operations,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by FileCount desc

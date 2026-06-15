@@ -1,2 +1,67 @@
-// MITRE ATT&CK: T1048 — Exfiltration Over Alternative Protocol (DNS)
-// Placeholder: detection logic to be implemented
+// ============================================================
+// RetailShield — DNS Exfiltration Detection Rule
+// MITRE ATT&CK : T1048 — Exfiltration Over Alternative Protocol
+// Tactic       : Exfiltration
+// Severity     : High
+// Frequency    : Every 15 minutes | Lookback: 1 hour
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : SANS DNS exfiltration detection methodology;
+//                label lengths > 30 chars and query rates > 50/hr
+//                to a single domain are strong indicators per
+//                iodine and dnscat2 tooling research.
+// ============================================================
+//
+// Source table : DnsEvents
+//   Detects DNS tunnelling and data exfiltration via DNS queries.
+//   Encoded data is embedded in long subdomain labels — attackers
+//   use Base64 or hex encoding within the 63-char DNS label limit.
+//
+// Key signals:
+//   1. High query volume to a single parent domain
+//   2. Unusually long subdomain labels (> 30 characters)
+//   3. Multiple clients querying the same suspicious domain
+// ============================================================
+
+let LookbackPeriod     = 1h;
+let QueryThreshold     = 50;  // >= 50 queries to one domain in window suggests tunnelling
+let LongLabelLength    = 30;  // subdomains with labels > 30 chars are likely encoded data
+
+DnsEvents
+| where TimeGenerated > ago(LookbackPeriod)
+| where SubType == "LookupQuery"
+| where isnotempty(Name)
+| extend
+    DomainParts   = split(Name, "."),
+    LabelLength   = strlen(tostring(split(Name, ".")[0]))
+| extend
+    ParentDomain  = strcat(tostring(DomainParts[-2]), ".", tostring(DomainParts[-1]))
+| where LabelLength >= LongLabelLength
+| summarize
+    QueryCount       = count(),
+    DistinctClients  = dcount(ClientIP),
+    MaxLabelLength   = max(LabelLength),
+    SampleQueries    = make_set(Name, 5),
+    FirstSeen        = min(TimeGenerated),
+    LastSeen         = max(TimeGenerated)
+    by ParentDomain
+| where QueryCount >= QueryThreshold
+| extend
+    AlertSeverity    = iff(QueryCount >= 200 or MaxLabelLength >= 60, "Critical", "High"),
+    MitreTechnique   = "T1048",
+    MitreTactic      = "Exfiltration",
+    PlaybookTrigger  = "block_domain_and_notify_soc",
+    RiskScore        = iff(QueryCount >= 200, 90, 72)
+| project
+    FirstSeen,
+    LastSeen,
+    ParentDomain,
+    QueryCount,
+    DistinctClients,
+    MaxLabelLength,
+    SampleQueries,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by QueryCount desc
