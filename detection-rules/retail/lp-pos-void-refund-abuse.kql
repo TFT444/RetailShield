@@ -1,0 +1,117 @@
+// ============================================================
+// RetailShield — Loss Prevention: POS Void/Refund Abuse
+// MITRE ATT&CK : T1657 — Financial Theft
+// Tactic       : Impact
+// Severity     : High
+// Frequency    : Every 5 minutes | Lookback: 30 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : UK retail loss prevention — cashier-initiated refund
+//                fraud; CIFAS Insider Fraud Report 2024; BRC Retail
+//                Crime Survey 2024 (refund abuse ranks top-3 insider
+//                threat vector for UK grocery and fashion retailers)
+// ============================================================
+//
+// Source table : RetailShield_POS_CL
+//   Detects cashiers processing an abnormally high volume of void
+//   or refund transactions within a 30-minute window — the primary
+//   indicator of systematic refund fraud, return manipulation, and
+//   sweethearting preparation.
+//
+// Detection signals:
+//   Signal 1 — High-volume voids: ≥ 10 VOID/REFUND/RETURN transactions
+//              by one operator in a 30-minute window
+//   Signal 2 — Rapid escalation: ≥ 5 voids in ≤ 10 minutes (burst pattern)
+//   Signal 3 — Value concentration: total voided value > £500 in window
+//              without a manager override recorded
+//
+// Enrichment  : cashier ID, terminal IDs, store, total value, tx count
+// Playbook    : lp-incident-response
+// ============================================================
+
+let LookbackPeriod   = 30m;
+let VolumeThreshold  = 10;    // voids/refunds per operator per 30-min window
+let BurstThreshold   = 5;     // voids in ≤ 10 minutes
+let ValueThreshold   = 500.0; // GBP — total voided value triggering Critical
+
+// ── Signal 1: High-volume void/refund in 30-minute window ────────────────────
+let HighVolumeAbuse =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s in ("VOID", "REFUND", "RETURN")
+    | where isnotempty(OperatorId_s)
+    | summarize
+        TransactionCount  = count(),
+        TotalValueVoided  = sum(toreal(TransactionAmount_d)),
+        TerminalIDs       = make_set(TerminalId_s, 5),
+        TransactionTypes  = make_set(TransactionType_s, 3),
+        FirstTransaction  = min(TimeGenerated),
+        LastTransaction   = max(TimeGenerated),
+        HasManagerOverride = countif(isnotempty(ManagerOverrideId_s)) > 0
+        by OperatorId_s, StoreId_s, bin(TimeGenerated, 30m)
+    | where TransactionCount >= VolumeThreshold
+    | extend DetectionSignal = "HighVolumeVoidRefund";
+
+// ── Signal 2: Rapid burst — ≥ 5 voids in ≤ 10 minutes ───────────────────────
+let BurstAbuse =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s in ("VOID", "REFUND", "RETURN")
+    | where isnotempty(OperatorId_s)
+    | summarize
+        TransactionCount  = count(),
+        TotalValueVoided  = sum(toreal(TransactionAmount_d)),
+        TerminalIDs       = make_set(TerminalId_s, 5),
+        TransactionTypes  = make_set(TransactionType_s, 3),
+        FirstTransaction  = min(TimeGenerated),
+        LastTransaction   = max(TimeGenerated),
+        HasManagerOverride = countif(isnotempty(ManagerOverrideId_s)) > 0
+        by OperatorId_s, StoreId_s, bin(TimeGenerated, 10m)
+    | where TransactionCount >= BurstThreshold
+    | extend DetectionSignal = "RapidVoidBurst";
+
+// ── Signal 3: High-value voids without manager override ──────────────────────
+let HighValueNoOverride =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s in ("VOID", "REFUND")
+    | where isnotempty(OperatorId_s)
+    | summarize
+        TransactionCount  = count(),
+        TotalValueVoided  = sum(toreal(TransactionAmount_d)),
+        TerminalIDs       = make_set(TerminalId_s, 5),
+        TransactionTypes  = make_set(TransactionType_s, 3),
+        FirstTransaction  = min(TimeGenerated),
+        LastTransaction   = max(TimeGenerated),
+        HasManagerOverride = countif(isnotempty(ManagerOverrideId_s)) > 0
+        by OperatorId_s, StoreId_s, bin(TimeGenerated, 30m)
+    | where TotalValueVoided >= ValueThreshold
+    | where not(HasManagerOverride)
+    | extend DetectionSignal = "HighValueVoidNoOverride";
+
+// ── Union all signals and enrich ─────────────────────────────────────────────
+union HighVolumeAbuse, BurstAbuse, HighValueNoOverride
+| extend
+    IsCritical      = TotalValueVoided >= ValueThreshold and not(HasManagerOverride),
+    AlertSeverity   = iff(TotalValueVoided >= ValueThreshold and not(HasManagerOverride), "Critical", "High"),
+    MitreTechnique  = "T1657",
+    MitreTactic     = "Impact",
+    PlaybookTrigger = "lp-incident-response",
+    RiskScore       = iff(TotalValueVoided >= ValueThreshold and not(HasManagerOverride), 95, 80)
+| project
+    TimeGenerated    = FirstTransaction,
+    OperatorId_s,
+    StoreId_s,
+    TerminalIDs,
+    DetectionSignal,
+    TransactionCount,
+    TransactionTypes,
+    TotalValueVoided,
+    HasManagerOverride,
+    LastTransaction,
+    IsCritical,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by RiskScore desc, TimeGenerated desc
