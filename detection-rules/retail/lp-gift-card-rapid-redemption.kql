@@ -1,0 +1,126 @@
+// ============================================================
+// RetailShield — Loss Prevention: Gift Card Rapid Redemption
+// MITRE ATT&CK : T1657 — Financial Theft
+// Tactic       : Impact
+// Severity     : High
+// Frequency    : Every 10 minutes | Lookback: 60 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : UK retail gift card fraud — bulk activation followed
+//                by rapid redemption is the leading gift card attack
+//                vector per UK Finance Fraud Report 2024; cross-store
+//                and online redemption patterns indicate organised crime
+// ============================================================
+//
+// Source table : RetailShield_POS_CL
+//   Detects organised gift card fraud via two correlated signals:
+//   bulk activation of gift cards at a single terminal, followed by
+//   rapid redemption — particularly when redemption occurs at a
+//   different store or online channel within 30 minutes of activation.
+//
+// Detection signals:
+//   Signal 1 — Bulk activation: ≥ 5 gift cards activated by one
+//              operator in a 60-minute window
+//   Signal 2 — Rapid cross-channel redemption: activated cards
+//              redeemed within 30 minutes at a different store or
+//              online (high-confidence organised fraud indicator)
+//   Signal 3 — Value concentration: total activated gift card value
+//              > £200 in one session by one operator
+//
+// Enrichment  : operator ID, terminal, store, card batch, total value
+// Playbook    : lp-incident-response
+// ============================================================
+
+let LookbackPeriod       = 60m;
+let BulkActivationThresh = 5;     // gift cards activated per operator per window
+let RapidRedemptionMins  = 30;    // minutes between activation and redemption
+let ValueThreshold       = 200.0; // GBP — total activated value in one session
+
+// ── Signal 1: Bulk gift card activation by one operator ──────────────────────
+let BulkActivation =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "GIFT_CARD_ACTIVATE"
+    | where isnotempty(OperatorId_s)
+    | summarize
+        ActivationCount   = count(),
+        TotalValueLoaded  = sum(toreal(TransactionAmount_d)),
+        CardBatchIDs      = make_set(GiftCardId_s, 20),
+        TerminalIDs       = make_set(TerminalId_s, 5),
+        FirstActivation   = min(TimeGenerated),
+        LastActivation    = max(TimeGenerated)
+        by OperatorId_s, StoreId_s, bin(TimeGenerated, 60m)
+    | where ActivationCount >= BulkActivationThresh
+    | extend DetectionSignal = "BulkGiftCardActivation";
+
+// ── Signal 2: Rapid cross-channel/cross-store redemption ─────────────────────
+let RapidRedemption =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "GIFT_CARD_REDEEM"
+    | where isnotempty(GiftCardId_s)
+    | join kind=inner (
+        RetailShield_POS_CL
+        | where ingestion_time() > ago(LookbackPeriod)
+        | where TransactionType_s == "GIFT_CARD_ACTIVATE"
+        | project
+            GiftCardId_s,
+            ActivationTime  = TimeGenerated,
+            ActivationStore = StoreId_s,
+            ActivationOp    = OperatorId_s,
+            ActivationTerminal = TerminalId_s
+    ) on GiftCardId_s
+    | extend MinutesSinceActivation = datetime_diff("minute", TimeGenerated, ActivationTime)
+    | where MinutesSinceActivation <= RapidRedemptionMins
+    | where StoreId_s != ActivationStore or Channel_s == "ONLINE"
+    | summarize
+        ActivationCount   = dcount(GiftCardId_s),
+        TotalValueLoaded  = sum(toreal(TransactionAmount_d)),
+        CardBatchIDs      = make_set(GiftCardId_s, 20),
+        TerminalIDs       = make_set(TerminalId_s, 5),
+        FirstActivation   = min(ActivationTime),
+        LastActivation    = max(TimeGenerated)
+        by OperatorId_s = ActivationOp, StoreId_s = ActivationStore, bin(TimeGenerated, 60m)
+    | extend DetectionSignal = "RapidCrossChannelRedemption";
+
+// ── Signal 3: High-value activation session ───────────────────────────────────
+let HighValueSession =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "GIFT_CARD_ACTIVATE"
+    | where isnotempty(OperatorId_s)
+    | summarize
+        ActivationCount   = count(),
+        TotalValueLoaded  = sum(toreal(TransactionAmount_d)),
+        CardBatchIDs      = make_set(GiftCardId_s, 20),
+        TerminalIDs       = make_set(TerminalId_s, 5),
+        FirstActivation   = min(TimeGenerated),
+        LastActivation    = max(TimeGenerated)
+        by OperatorId_s, StoreId_s, bin(TimeGenerated, 60m)
+    | where TotalValueLoaded >= ValueThreshold
+    | extend DetectionSignal = "HighValueActivationSession";
+
+// ── Union all signals and enrich ─────────────────────────────────────────────
+union BulkActivation, RapidRedemption, HighValueSession
+| extend
+    IsCritical      = DetectionSignal == "RapidCrossChannelRedemption",
+    AlertSeverity   = iff(DetectionSignal == "RapidCrossChannelRedemption", "Critical", "High"),
+    MitreTechnique  = "T1657",
+    MitreTactic     = "Impact",
+    PlaybookTrigger = "lp-incident-response",
+    RiskScore       = iff(DetectionSignal == "RapidCrossChannelRedemption", 90, 80)
+| project
+    TimeGenerated    = FirstActivation,
+    OperatorId_s,
+    StoreId_s,
+    TerminalIDs,
+    DetectionSignal,
+    ActivationCount,
+    CardBatchIDs,
+    TotalValueLoaded,
+    IsCritical,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by RiskScore desc, TimeGenerated desc
