@@ -1,0 +1,135 @@
+// ============================================================
+// RetailShield — Loss Prevention: Sweethearting / Buddy Fraud
+// MITRE ATT&CK : T1657 — Financial Theft
+// Tactic       : Impact
+// Severity     : High
+// Frequency    : Every 24 hours | Lookback: 7 days
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : UK retail insider fraud — sweethearting (processing
+//                transactions for associates without scanning all
+//                items) is consistently ranked top-2 cashier fraud
+//                type per CIFAS Insider Fraud Report 2024 and BRC
+//                Retail Crime Survey 2024
+// ============================================================
+//
+// Source table : RetailShield_POS_CL
+//   Detects cashiers who repeatedly serve the same loyalty customer
+//   with abnormally high discount rates — the primary behavioural
+//   signature of sweethearting and buddy fraud.
+//
+// Detection signals:
+//   Signal 1 — Repeat discount relationship: same cashier + same
+//              loyalty card in ≥ 5 transactions with discount > 30%
+//              over a 7-day rolling window
+//   Signal 2 — Below-average basket value: cashier's average basket
+//              for flagged customer is < 60% of store average
+//              (indicates items being passed through without scanning)
+//   Signal 3 — Discount concentration: one cashier responsible for
+//              > 40% of all discounts issued at their terminal
+//
+// Enrichment  : cashier ID, customer loyalty ID, discount totals
+// Playbook    : lp-incident-response
+// ============================================================
+
+let LookbackPeriod        = 7d;
+let RepeatTransactions    = 5;    // minimum interactions per cashier/customer pair
+let DiscountRateThreshold = 0.30; // 30% — average discount rate across flagged txns
+let BasketRatioThreshold  = 0.60; // flagged basket < 60% of store average
+let DiscountShareThresh   = 0.40; // cashier accounts for >40% of terminal discounts
+
+// ── Signal 1: Repeat high-discount relationship ───────────────────────────────
+let RepeatDiscountRelationship =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "SALE"
+    | where isnotempty(OperatorId_s) and isnotempty(LoyaltyCardId_s)
+    | where toreal(DiscountAmount_d) > 0
+    | extend DiscountRate = toreal(DiscountAmount_d) / toreal(TransactionAmount_d)
+    | summarize
+        TransactionCount   = count(),
+        AvgDiscountRate    = avg(DiscountRate),
+        TotalDiscountValue = sum(toreal(DiscountAmount_d)),
+        AvgBasketValue     = avg(toreal(TransactionAmount_d)),
+        FirstSeen          = min(TimeGenerated),
+        LastSeen           = max(TimeGenerated)
+        by OperatorId_s, LoyaltyCardId_s, StoreId_s
+    | where TransactionCount >= RepeatTransactions
+    | where AvgDiscountRate >= DiscountRateThreshold
+    | extend DetectionSignal = "RepeatHighDiscountRelationship";
+
+// ── Signal 2: Below-average basket for flagged customer ───────────────────────
+let StoreBasketAverage =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "SALE"
+    | summarize StoreAvgBasket = avg(toreal(TransactionAmount_d)) by StoreId_s;
+
+let BelowAverageBasket =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "SALE"
+    | where isnotempty(OperatorId_s) and isnotempty(LoyaltyCardId_s)
+    | summarize
+        TransactionCount   = count(),
+        AvgDiscountRate    = avg(toreal(DiscountAmount_d) / toreal(TransactionAmount_d)),
+        TotalDiscountValue = sum(toreal(DiscountAmount_d)),
+        AvgBasketValue     = avg(toreal(TransactionAmount_d)),
+        FirstSeen          = min(TimeGenerated),
+        LastSeen           = max(TimeGenerated)
+        by OperatorId_s, LoyaltyCardId_s, StoreId_s
+    | where TransactionCount >= RepeatTransactions
+    | join kind=inner StoreBasketAverage on StoreId_s
+    | where AvgBasketValue < (StoreAvgBasket * BasketRatioThreshold)
+    | extend DetectionSignal = "BelowAverageBasketForCustomer";
+
+// ── Signal 3: Cashier discount concentration at terminal ──────────────────────
+let TerminalDiscountTotals =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "SALE" and toreal(DiscountAmount_d) > 0
+    | summarize TerminalTotalDiscount = sum(toreal(DiscountAmount_d)) by TerminalId_s;
+
+let DiscountConcentration =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "SALE"
+    | where isnotempty(OperatorId_s) and toreal(DiscountAmount_d) > 0
+    | summarize
+        TransactionCount   = count(),
+        AvgDiscountRate    = avg(toreal(DiscountAmount_d) / toreal(TransactionAmount_d)),
+        TotalDiscountValue = sum(toreal(DiscountAmount_d)),
+        AvgBasketValue     = avg(toreal(TransactionAmount_d)),
+        LoyaltyCardId_s    = "N/A",
+        FirstSeen          = min(TimeGenerated),
+        LastSeen           = max(TimeGenerated)
+        by OperatorId_s, TerminalId_s, StoreId_s
+    | join kind=inner TerminalDiscountTotals on TerminalId_s
+    | extend DiscountShare = TotalDiscountValue / TerminalTotalDiscount
+    | where DiscountShare >= DiscountShareThresh
+    | extend DetectionSignal = "HighDiscountConcentrationAtTerminal";
+
+// ── Union all signals and enrich ─────────────────────────────────────────────
+union RepeatDiscountRelationship, BelowAverageBasket, DiscountConcentration
+| extend
+    AlertSeverity   = "High",
+    MitreTechnique  = "T1657",
+    MitreTactic     = "Impact",
+    PlaybookTrigger = "lp-incident-response",
+    RiskScore       = iff(DetectionSignal == "RepeatHighDiscountRelationship", 75, 70)
+| project
+    TimeGenerated    = FirstSeen,
+    OperatorId_s,
+    StoreId_s,
+    LoyaltyCardId_s,
+    DetectionSignal,
+    TransactionCount,
+    AvgDiscountRate,
+    TotalDiscountValue,
+    AvgBasketValue,
+    LastSeen,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by RiskScore desc, TimeGenerated desc
