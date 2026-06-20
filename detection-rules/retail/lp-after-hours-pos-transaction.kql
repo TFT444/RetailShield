@@ -1,0 +1,120 @@
+// ============================================================
+// RetailShield — Loss Prevention: After-Hours POS Transaction
+// MITRE ATT&CK : T1657 — Financial Theft
+// Tactic       : Impact
+// Severity     : High
+// Frequency    : Every 5 minutes | Lookback: 30 minutes
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Reference    : UK retail insider theft — POS activity outside
+//                trading hours is a primary indicator of ghost
+//                employee fraud, till skimming, and unauthorised
+//                terminal access; CIFAS Insider Fraud Report 2024
+// ============================================================
+//
+// Source table : RetailShield_POS_CL
+//   Detects POS transactions processed outside normal store trading
+//   hours. Any after-hours POS activity is a high-priority signal —
+//   legitimate transactions should not occur when the store is closed.
+//
+// Detection signals:
+//   Signal 1 — After-hours sale: any SALE transaction outside
+//              22:00–06:00 UTC window with value > £100
+//   Signal 2 — Ghost employee: transaction processed by an operator
+//              whose shift has ended (no active shift record in
+//              lookback window during business hours)
+//   Signal 3 — Closed-store activity: ≥ 3 transactions at the same
+//              terminal outside trading hours in a 30-minute window
+//              regardless of value (terminal takeover pattern)
+//
+// Store hours  : configurable — default 06:00–22:00 UTC
+// Enrichment   : operator ID, terminal ID, store, value, time delta
+// Playbook     : lp-incident-response
+// ============================================================
+
+let LookbackPeriod       = 30m;
+let StoreOpenHour        = 6;      // 06:00 UTC
+let StoreCloseHour       = 22;     // 22:00 UTC
+let ValueThreshold       = 100.0;  // GBP — after-hours sale value to alert
+let TerminalBurstThresh  = 3;      // transactions at one terminal after hours
+
+// ── Signal 1: After-hours high-value sale ────────────────────────────────────
+let AfterHoursSale =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s == "SALE"
+    | where isnotempty(OperatorId_s)
+    | extend HourOfDay = hourofday(TimeGenerated)
+    | where HourOfDay < StoreOpenHour or HourOfDay >= StoreCloseHour
+    | where toreal(TransactionAmount_d) >= ValueThreshold
+    | extend
+        DetectionSignal  = "AfterHoursHighValueSale",
+        TransactionCount = 1,
+        TotalValue       = toreal(TransactionAmount_d);
+
+// ── Signal 2: Ghost employee — operator with no daytime shift ────────────────
+let DaytimeOperators =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(1d)
+    | where isnotempty(OperatorId_s)
+    | extend HourOfDay = hourofday(TimeGenerated)
+    | where HourOfDay >= StoreOpenHour and HourOfDay < StoreCloseHour
+    | distinct OperatorId_s, StoreId_s;
+
+let GhostEmployee =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s in ("SALE", "VOID", "REFUND")
+    | where isnotempty(OperatorId_s)
+    | extend HourOfDay = hourofday(TimeGenerated)
+    | where HourOfDay < StoreOpenHour or HourOfDay >= StoreCloseHour
+    | join kind=leftanti DaytimeOperators on OperatorId_s, StoreId_s
+    | extend
+        DetectionSignal  = "GhostEmployeeAfterHours",
+        TransactionCount = 1,
+        TotalValue       = toreal(TransactionAmount_d);
+
+// ── Signal 3: Terminal burst — ≥ 3 transactions outside trading hours ─────────
+let TerminalBurst =
+    RetailShield_POS_CL
+    | where ingestion_time() > ago(LookbackPeriod)
+    | where TransactionType_s in ("SALE", "VOID", "REFUND", "RETURN")
+    | extend HourOfDay = hourofday(TimeGenerated)
+    | where HourOfDay < StoreOpenHour or HourOfDay >= StoreCloseHour
+    | summarize
+        TransactionCount = count(),
+        TotalValue       = sum(toreal(TransactionAmount_d)),
+        Operators        = make_set(OperatorId_s, 5),
+        TimeGenerated    = min(TimeGenerated)
+        by TerminalId_s, StoreId_s
+    | where TransactionCount >= TerminalBurstThresh
+    | extend
+        OperatorId_s    = tostring(Operators[0]),
+        DetectionSignal = "ClosedStoreTerminalBurst";
+
+// ── Union all signals and enrich ─────────────────────────────────────────────
+union
+    (AfterHoursSale | project TimeGenerated, OperatorId_s, StoreId_s, TerminalId_s, DetectionSignal, TransactionCount, TotalValue),
+    (GhostEmployee  | project TimeGenerated, OperatorId_s, StoreId_s, TerminalId_s, DetectionSignal, TransactionCount, TotalValue),
+    (TerminalBurst  | project TimeGenerated, OperatorId_s, StoreId_s, TerminalId_s, DetectionSignal, TransactionCount, TotalValue)
+| extend
+    IsCritical      = DetectionSignal in ("GhostEmployeeAfterHours", "ClosedStoreTerminalBurst"),
+    AlertSeverity   = iff(DetectionSignal in ("GhostEmployeeAfterHours", "ClosedStoreTerminalBurst"), "Critical", "High"),
+    MitreTechnique  = "T1657",
+    MitreTactic     = "Impact",
+    PlaybookTrigger = "lp-incident-response",
+    RiskScore       = iff(DetectionSignal in ("GhostEmployeeAfterHours", "ClosedStoreTerminalBurst"), 92, 80)
+| project
+    TimeGenerated,
+    OperatorId_s,
+    StoreId_s,
+    TerminalId_s,
+    DetectionSignal,
+    TransactionCount,
+    TotalValue,
+    IsCritical,
+    AlertSeverity,
+    MitreTechnique,
+    MitreTactic,
+    PlaybookTrigger,
+    RiskScore
+| order by RiskScore desc, TimeGenerated desc
