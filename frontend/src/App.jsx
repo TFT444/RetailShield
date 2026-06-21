@@ -7,6 +7,7 @@ import ThreatDetection    from './modules/ThreatDetection.jsx';
 import VulnerabilityScanner from './modules/VulnerabilityScanner.jsx';
 import ComplianceCentre   from './modules/ComplianceCentre.jsx';
 import DetectionRules     from './modules/DetectionRules.jsx';
+import LossPrevention    from './modules/LossPrevention.jsx';
 
 export default function App() {
   const [route, setRoute]       = useState('landing');
@@ -27,6 +28,7 @@ export default function App() {
     case 'vuln':       return <VulnerabilityScanner nav={nav} onBack={() => nav('portal')} />;
     case 'compliance': return <ComplianceCentre   nav={nav} incidents={incidents} onBack={() => nav('portal')} />;
     case 'rules':      return <DetectionRules     nav={nav} onBack={() => nav('portal')} />;
+    case 'lp':         return <LossPrevention    nav={nav} onBack={() => nav('portal')} />;
     default:           return <Landing   onDemo={() => nav('portal')} onSignIn={() => nav('login')} />;
   }
 }
