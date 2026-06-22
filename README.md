@@ -9,7 +9,7 @@
 [![Azure Sentinel](https://img.shields.io/badge/SIEM-Microsoft%20Sentinel-0078D4?logo=microsoftazure)](https://azure.microsoft.com/en-gb/products/microsoft-sentinel)
 [![MITRE ATT&CK](https://img.shields.io/badge/Framework-MITRE%20ATT%26CK-red)](https://attack.mitre.org/)
 [![Built With KQL](https://img.shields.io/badge/Language-KQL-orange)](https://learn.microsoft.com/en-us/azure/data-explorer/kusto/query/)
-[![Status](https://img.shields.io/badge/Status-In%20Development-yellow)]()
+[![Status](https://img.shields.io/badge/Status-Active%20MVP-brightgreen)]()
 [![Author](https://img.shields.io/badge/Author-Tanvir%20Farhad%20%7C%20ShieldTech%20Ltd-informational)]()
 
 > **A retail threat detection and incident response content pack for Microsoft Sentinel.**
