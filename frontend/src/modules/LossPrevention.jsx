@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useRef } from 'react';
 import {
   ShoppingCart, AlertTriangle, TrendingUp, TrendingDown,
   Minus, X, Clock, User, Monitor, ChevronRight,
-  PoundSterling, Store, BarChart2,
+  PoundSterling, Store, BarChart2,Zap,
 } from 'lucide-react';
 import TopBar      from '../components/TopBar.jsx';
 import SeverityBadge from '../components/SeverityBadge.jsx';
