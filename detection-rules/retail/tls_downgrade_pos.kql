@@ -1,0 +1,46 @@
+// ============================================================
+// RetailShield — POS TLS Downgrade / Weak Cipher Detection Rule
+// Rule ID      : RS-TLS-001
+// MITRE ATT&CK : T1557 — Adversary-in-the-Middle
+// Tactic       : Credential Access / Collection
+// Severity     : High
+// Frequency    : Every 30 minutes | Lookback: 1 hour
+// Source table : CommonSecurityLog (firewall / proxy CEF connector)
+// Author       : Tanvir Farhad — ShieldTech Ltd, London
+// Notes        : A payment-handling endpoint suddenly negotiating TLS 1.0/1.1
+//                or a weak cipher suite indicates a downgrade attack, a
+//                misconfigured terminal, or a compromised device — all of
+//                which breach PCI-DSS v4.0 requirement 4.2.1.
+// ============================================================
+
+let LookbackPeriod = 1h;
+let POSSubnets = dynamic(["10.10.20.", "10.10.21.", "192.168.50."]);
+let WeakTLSVersions = dynamic(["TLSv1", "TLSv1.0", "TLSv1.1", "SSLv3", "SSLv2"]);
+let WeakCiphers = dynamic(["RC4", "DES", "3DES", "MD5", "NULL", "EXPORT", "anon"]);
+
+CommonSecurityLog
+| where TimeGenerated > ago(LookbackPeriod)
+| where isnotempty(SourceIP)
+| where SourceIP has_any (POSSubnets) or DestinationIP has_any (POSSubnets)
+| extend TLSInfo = strcat(AdditionalExtensions, " ", RequestContext)
+| extend
+    NegotiatedTLS = extract(@"(SSLv2|SSLv3|TLSv1\.?[012]?)(?![\.\d])", 1, TLSInfo),
+    CipherSuite   = extract(@"cipher[=:]?\s?([A-Za-z0-9_\-]+)", 1, TLSInfo)
+| where NegotiatedTLS in (WeakTLSVersions)
+    or CipherSuite has_any (WeakCiphers)
+| summarize
+    EventCount   = count(),
+    TLSVersions  = make_set(NegotiatedTLS, 5),
+    Ciphers      = make_set(CipherSuite, 5),
+    Destinations = make_set(DestinationIP, 10),
+    FirstSeen    = min(TimeGenerated),
+    LastSeen     = max(TimeGenerated)
+    by SourceIP
+| extend
+    Severity = iff(EventCount > 20, "Critical", "High"),
+    ComplianceImpact = "PCI-DSS v4.0 req 4.2.1 — strong cryptography for cardholder data in transit"
+| project
+    FirstSeen, LastSeen, SourceIP, Destinations,
+    TLSVersions, Ciphers, EventCount,
+    Severity, ComplianceImpact
+| order by EventCount desc
