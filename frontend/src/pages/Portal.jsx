@@ -11,7 +11,7 @@ const MODULES = [
   { id:'vuln',       icon:Search,       name:'Vulnerability Scanner', desc:'Web and network security assessment with severity-ranked findings.',      color:'#D97706', active:true  },
   { id:'compliance', icon:FileCheck,    name:'Compliance Centre',     desc:'UK regulatory deadline tracking — ICO, NCSC, PCI DSS, and NIS2.',        color:'#16A34A', active:true  },
   { id:'rules',      icon:BookOpen,     name:'Detection Rules',       desc:'KQL rule management, MITRE ATT&CK coverage, and rule performance.',      color:'#2563EB', active:true  },
-  { id:null,         icon:ShoppingCart, name:'Loss Prevention',       desc:'Financial fraud detection, void/refund abuse, and store risk scoring.',   color:'#5A6478', active:false },
+  { id:'lp',         icon:ShoppingCart, name:'Loss Prevention',       desc:'Financial fraud detection, void/refund abuse, and store risk scoring.',   color:'#F97316', active:true  },
   { id:null,         icon:Link2,        name:'ChainShield',           desc:'Supply chain and third-party supplier compromise detection.',              color:'#5A6478', active:false },
 ];
 

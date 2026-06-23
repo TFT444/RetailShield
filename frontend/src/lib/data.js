@@ -733,16 +733,16 @@ export const LP_INCIDENTS = [
 ];
 
 export const LP_STORE_RISK = [
-  { storeId: 'Store-007', storeName: 'Oxford Street',    riskScore: 92, openIncidents: 1, highestSignal: 'GhostEmployeeAfterHours',        lastIncident: '2026-06-21T02:31:00Z', trend: 'up'   },
-  { storeId: 'Store-017', storeName: 'Canary Wharf',     riskScore: 88, openIncidents: 1, highestSignal: 'HighValueVoidNoOverride',         lastIncident: '2026-06-21T14:08:00Z', trend: 'up'   },
-  { storeId: 'Store-003', storeName: 'Westfield Strat.', riskScore: 84, openIncidents: 1, highestSignal: 'RapidCrossChannelRedemption',     lastIncident: '2026-06-20T16:14:00Z', trend: 'up'   },
-  { storeId: 'Store-022', storeName: 'Bluewater',        riskScore: 80, openIncidents: 1, highestSignal: 'ClosedStoreTerminalBurst',        lastIncident: '2026-06-20T23:58:00Z', trend: 'stable'},
-  { storeId: 'Store-031', storeName: 'Trafford Centre',  riskScore: 74, openIncidents: 1, highestSignal: 'HighVolumeVoidRefund',            lastIncident: '2026-06-21T11:42:00Z', trend: 'stable'},
-  { storeId: 'Store-042', storeName: 'Meadowhall',       riskScore: 68, openIncidents: 1, highestSignal: 'RepeatHighDiscountRelationship',  lastIncident: '2026-06-21T06:00:00Z', trend: 'up'   },
+  { storeId: 'Store-007', storeName: 'Oxford Street',    riskScore: 92, openIncidents: 1, highestSignal: 'GhostEmployeeAfterHours',           lastIncident: '2026-06-21T02:31:00Z', trend: 'up'   },
+  { storeId: 'Store-017', storeName: 'Canary Wharf',     riskScore: 88, openIncidents: 1, highestSignal: 'HighValueVoidNoOverride',            lastIncident: '2026-06-21T14:08:00Z', trend: 'up'   },
+  { storeId: 'Store-003', storeName: 'Westfield Strat.', riskScore: 84, openIncidents: 1, highestSignal: 'RapidCrossChannelRedemption',        lastIncident: '2026-06-20T16:14:00Z', trend: 'up'   },
+  { storeId: 'Store-022', storeName: 'Bluewater',        riskScore: 80, openIncidents: 1, highestSignal: 'ClosedStoreTerminalBurst',           lastIncident: '2026-06-20T23:58:00Z', trend: 'stable'},
+  { storeId: 'Store-031', storeName: 'Trafford Centre',  riskScore: 74, openIncidents: 1, highestSignal: 'HighVolumeVoidRefund',               lastIncident: '2026-06-21T11:42:00Z', trend: 'stable'},
+  { storeId: 'Store-042', storeName: 'Meadowhall',       riskScore: 68, openIncidents: 1, highestSignal: 'RepeatHighDiscountRelationship',     lastIncident: '2026-06-21T06:00:00Z', trend: 'up'   },
   { storeId: 'Store-019', storeName: 'Bullring',         riskScore: 62, openIncidents: 1, highestSignal: 'HighDiscountConcentrationAtTerminal', lastIncident: '2026-06-20T06:00:00Z', trend: 'stable'},
-  { storeId: 'Store-008', storeName: 'Brent Cross',      riskScore: 58, openIncidents: 1, highestSignal: 'BulkGiftCardActivation',          lastIncident: '2026-06-21T10:22:00Z', trend: 'down' },
-  { storeId: 'Store-011', storeName: 'Lakeside',         riskScore: 28, openIncidents: 0, highestSignal: null,                              lastIncident: null,                    trend: 'stable'},
-  { storeId: 'Store-055', storeName: 'Arndale',          riskScore: 21, openIncidents: 0, highestSignal: null,                              lastIncident: null,                    trend: 'down' },
+  { storeId: 'Store-008', storeName: 'Brent Cross',      riskScore: 58, openIncidents: 1, highestSignal: 'BulkGiftCardActivation',             lastIncident: '2026-06-21T10:22:00Z', trend: 'down' },
+  { storeId: 'Store-011', storeName: 'Lakeside',         riskScore: 28, openIncidents: 0, highestSignal: null,                                 lastIncident: null,                    trend: 'stable'},
+  { storeId: 'Store-055', storeName: 'Arndale',          riskScore: 21, openIncidents: 0, highestSignal: null,                                 lastIncident: null,                    trend: 'down' },
 ];
 
 export const SUBMISSION_HISTORY = [
