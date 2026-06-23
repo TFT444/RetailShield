@@ -68,65 +68,7 @@ RetailShield closes that gap.
 
 ## Architecture
 
-```
-                      RETAILSHIELD
-    Retail-specific threat detection & automated response
-             built natively for Microsoft Sentinel
-
-┌─────────────────────────────────────────────────────────────────┐
-│ 1. RETAIL DATA SOURCES                                          │
-│ POS/Till · Identity (Azure AD) · Email/M365 · Network/Firewall │
-│ Endpoints · Supply Chain & Suppliers                            │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ INGESTION → Microsoft Sentinel Log Analytics Workspace          │
-│ Standard tables + custom POS table (HMAC-SHA256 signed)         │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ 2. DETECTION — 24 KQL rules mapped to MITRE ATT&CK             │
-│                                                                 │
-│ Retail-specific (14): gift-card fraud · POS void/refund ·      │
-│ credential stuffing · MFA fatigue · phishing · ransomware ·    │
-│ supplier compromise · data exfil · AI voice fraud · POS        │
-│ anomaly · privileged role abuse · after-hours · impossible      │
-│ travel · TLS downgrade (PCI)                                    │
-│                                                                 │
-│ Loss Prevention (4): void/refund abuse · gift card fraud ·     │
-│ sweethearting · after-hours POS transaction                     │
-│                                                                 │
-│ Generic SOC (6): brute force · bulk file access · C2 beacon ·  │
-│ DNS exfil · RDP lateral movement · suspicious PowerShell        │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-               Sentinel correlates alerts → INCIDENT (IP · account · host)
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ 3. AUTOMATED RESPONSE & MITIGATION — 8 Logic App playbooks     │
-│                                                                 │
-│  ┌────────────────┐  ┌────────────────┐  ┌──────────────────┐  │
-│  │    STEP 1      │──▶    STEP 2      │──▶     STEP 3       │  │
-│  │   Triage &     │  │   Contain /    │  │  UK Compliance   │  │
-│  │    Enrich      │  │    Mitigate    │  │    Assistant     │  │
-│  │                │  │                │  │                  │  │
-│  │  classify +    │  │   block IP ·   │  │  NCSC 24h +      │  │
-│  │  severity ·    │  │ disable acct · │  │  ICO 72h tracking│  │
-│  │  threat-intel  │  │ isolate host   │  │  · drafts report │  │
-│  │ (VT/AbuseIPDB) │  │   (Defender)   │  │  (assists human) │  │
-│  └────────────────┘  └────────────────┘  └──────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-
-MODULES: [Threat Detection: LIVE] [Compliance Centre: LIVE] [Vulnerability Scanner: LIVE]
-         [Loss Prevention: LIVE] [ChainShield: PLANNED]
-
-Validated in a controlled lab · published methodology (DOI 10.5281/zenodo.20608262) · avg ~22 min MTTD
-A Sentinel-native content pack — not a standalone SIEM.
-```
+![RetailShield system flow](docs/images/retailshield_flow.svg)
 
 ---
 
