@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import {
   ShoppingCart, AlertTriangle, TrendingUp, TrendingDown,
   Minus, X, Clock, User, Monitor, ChevronRight,
