@@ -1,0 +1,371 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "PlaybookName": {
+      "type": "string",
+      "defaultValue": "RetailShield-LP-IncidentResponse",
+      "metadata": { "description": "Name of the Logic App playbook resource." }
+    },
+    "WorkspaceId": {
+      "type": "string",
+      "metadata": { "description": "Log Analytics workspace ID of the Sentinel workspace." }
+    },
+    "WorkspaceResourceGroup": {
+      "type": "string",
+      "metadata": { "description": "Resource group containing the Sentinel workspace." }
+    },
+    "LPManagerEmail": {
+      "type": "string",
+      "metadata": { "description": "Email address of the Loss Prevention manager who receives alert notifications." }
+    },
+    "SOCEmailGroup": {
+      "type": "string",
+      "metadata": { "description": "SOC distribution email for escalated LP incidents." }
+    },
+    "HRSystemWebhook": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": { "description": "Optional webhook URL for HR case management integration (leave empty to skip)." }
+    },
+    "CCTVRetentionApiUrl": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": { "description": "Optional CCTV retention API URL to flag footage timestamps (leave empty to skip)." }
+    },
+    "CCTVApiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": { "description": "API key for the CCTV retention system." }
+    }
+  },
+  "variables": {
+    "SentinelConnectionName": "[concat('azuresentinel-', parameters('PlaybookName'))]",
+    "OutlookConnectionName": "[concat('outlook-', parameters('PlaybookName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('SentinelConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('SentinelConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+        },
+        "parameterValueType": "Alternative"
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[variables('OutlookConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "kind": "V1",
+      "properties": {
+        "displayName": "[variables('OutlookConnectionName')]",
+        "api": {
+          "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/office365')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('PlaybookName')]",
+      "location": "[resourceGroup().location]",
+      "identity": { "type": "SystemAssigned" },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', variables('SentinelConnectionName'))]",
+        "[resourceId('Microsoft.Web/connections', variables('OutlookConnectionName'))]"
+      ],
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": {
+              "type": "Object"
+            }
+          },
+          "triggers": {
+            "Microsoft_Sentinel_incident": {
+              "type": "ApiConnectionWebhook",
+              "inputs": {
+                "body": {
+                  "callback_url": "@{listCallbackUrl()}"
+                },
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "path": "/incident-creation"
+              }
+            }
+          },
+          "actions": {
+            "Parse_incident_entities": {
+              "type": "ParseJson",
+              "runAfter": {},
+              "inputs": {
+                "content": "@triggerBody()?['object']?['properties']",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "title":       { "type": "string" },
+                    "severity":    { "type": "string" },
+                    "description": { "type": "string" },
+                    "incidentNumber": { "type": "integer" },
+                    "status":      { "type": "string" },
+                    "labels": {
+                      "type": "array",
+                      "items": { "type": "object" }
+                    }
+                  }
+                }
+              }
+            },
+            "Extract_LP_signal": {
+              "type": "Compose",
+              "runAfter": { "Parse_incident_entities": ["Succeeded"] },
+              "inputs": {
+                "incidentTitle":   "@body('Parse_incident_entities')?['title']",
+                "severity":        "@body('Parse_incident_entities')?['severity']",
+                "description":     "@body('Parse_incident_entities')?['description']",
+                "incidentUrl":     "@triggerBody()?['object']?['id']",
+                "incidentNumber":  "@body('Parse_incident_entities')?['incidentNumber']",
+                "isCritical":      "@or(equals(body('Parse_incident_entities')?['severity'], 'High'), equals(body('Parse_incident_entities')?['severity'], 'Critical'))",
+                "detectedAt":      "@utcNow()"
+              }
+            },
+            "Add_Sentinel_comment_acknowledged": {
+              "type": "ApiConnection",
+              "runAfter": { "Extract_LP_signal": ["Succeeded"] },
+              "inputs": {
+                "body": {
+                  "incidentArmId": "@triggerBody()?['object']?['id']",
+                  "message": "[LP Playbook] Incident received and acknowledged. Loss Prevention automated response initiated. Manager notification and CCTV flag actions will follow within 60 seconds."
+                },
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/Incidents/Comment"
+              }
+            },
+            "Notify_LP_manager": {
+              "type": "ApiConnection",
+              "runAfter": { "Add_Sentinel_comment_acknowledged": ["Succeeded"] },
+              "inputs": {
+                "body": {
+                  "To": "[parameters('LPManagerEmail')]",
+                  "Subject": "[RetailShield LP] @{outputs('Extract_LP_signal')?['severity']} Alert — @{outputs('Extract_LP_signal')?['incidentTitle']}",
+                  "Body": "<p><strong>RetailShield Loss Prevention Alert</strong></p><p><strong>Severity:</strong> @{outputs('Extract_LP_signal')?['severity']}<br><strong>Incident:</strong> #@{outputs('Extract_LP_signal')?['incidentNumber']}<br><strong>Title:</strong> @{outputs('Extract_LP_signal')?['incidentTitle']}<br><strong>Detected at:</strong> @{outputs('Extract_LP_signal')?['detectedAt']}</p><p><strong>Description:</strong><br>@{outputs('Extract_LP_signal')?['description']}</p><p><strong>Required actions:</strong><ul><li>Review the incident in Microsoft Sentinel</li><li>Verify CCTV footage for the flagged terminal and time window</li><li>Contact store manager to suspend flagged operator access if not already done</li><li>Escalate to HR if suspicious activity is confirmed</li></ul></p><p>This notification was generated automatically by the RetailShield LP Incident Response playbook.</p>",
+                  "Importance": "High",
+                  "IsHtml": true
+                },
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['office365']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/v2/Mail"
+              }
+            },
+            "Check_if_critical": {
+              "type": "If",
+              "runAfter": { "Notify_LP_manager": ["Succeeded"] },
+              "expression": {
+                "and": [
+                  {
+                    "equals": [
+                      "@body('Parse_incident_entities')?['severity']",
+                      "Critical"
+                    ]
+                  }
+                ]
+              },
+              "actions": {
+                "Escalate_to_SOC": {
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "body": {
+                      "To": "[parameters('SOCEmailGroup')]",
+                      "Subject": "[RetailShield LP — CRITICAL ESCALATION] @{outputs('Extract_LP_signal')?['incidentTitle']}",
+                      "Body": "<p><strong>CRITICAL Loss Prevention Incident — Immediate SOC Action Required</strong></p><p><strong>Incident:</strong> #@{outputs('Extract_LP_signal')?['incidentNumber']}<br><strong>Severity:</strong> Critical<br><strong>Title:</strong> @{outputs('Extract_LP_signal')?['incidentTitle']}<br><strong>Detected at:</strong> @{outputs('Extract_LP_signal')?['detectedAt']}</p><p><strong>Description:</strong><br>@{outputs('Extract_LP_signal')?['description']}</p><p><strong>This incident has been automatically escalated to the SOC due to Critical severity. LP manager has also been notified. Sentinel investigation is open.</strong></p>",
+                      "Importance": "High",
+                      "IsHtml": true
+                    },
+                    "host": {
+                      "connection": {
+                        "name": "@parameters('$connections')['office365']['connectionId']"
+                      }
+                    },
+                    "method": "post",
+                    "path": "/v2/Mail"
+                  }
+                },
+                "Update_Sentinel_severity_Active": {
+                  "type": "ApiConnection",
+                  "runAfter": { "Escalate_to_SOC": ["Succeeded"] },
+                  "inputs": {
+                    "body": {
+                      "incidentArmId": "@triggerBody()?['object']?['id']",
+                      "status": "Active"
+                    },
+                    "host": {
+                      "connection": {
+                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                      }
+                    },
+                    "method": "put",
+                    "path": "/Incidents"
+                  }
+                }
+              },
+              "else": {
+                "actions": {}
+              }
+            },
+            "Check_CCTV_integration_enabled": {
+              "type": "If",
+              "runAfter": { "Check_if_critical": ["Succeeded"] },
+              "expression": {
+                "and": [
+                  {
+                    "not": {
+                      "equals": [
+                        "[parameters('CCTVRetentionApiUrl')]",
+                        ""
+                      ]
+                    }
+                  }
+                ]
+              },
+              "actions": {
+                "Flag_CCTV_footage": {
+                  "type": "Http",
+                  "inputs": {
+                    "method": "POST",
+                    "uri": "[parameters('CCTVRetentionApiUrl')]",
+                    "headers": {
+                      "x-api-key": "[parameters('CCTVApiKey')]",
+                      "Content-Type": "application/json"
+                    },
+                    "body": {
+                      "incidentId":  "@{outputs('Extract_LP_signal')?['incidentNumber']}",
+                      "incidentTitle": "@{outputs('Extract_LP_signal')?['incidentTitle']}",
+                      "retentionWindowMinutes": 60,
+                      "detectedAt":  "@{outputs('Extract_LP_signal')?['detectedAt']}",
+                      "reason":      "RetailShield LP automated footage retention flag"
+                    }
+                  }
+                }
+              },
+              "else": {
+                "actions": {}
+              }
+            },
+            "Check_HR_integration_enabled": {
+              "type": "If",
+              "runAfter": { "Check_CCTV_integration_enabled": ["Succeeded"] },
+              "expression": {
+                "and": [
+                  {
+                    "not": {
+                      "equals": [
+                        "[parameters('HRSystemWebhook')]",
+                        ""
+                      ]
+                    }
+                  }
+                ]
+              },
+              "actions": {
+                "Create_HR_case": {
+                  "type": "Http",
+                  "inputs": {
+                    "method": "POST",
+                    "uri": "[parameters('HRSystemWebhook')]",
+                    "headers": {
+                      "Content-Type": "application/json"
+                    },
+                    "body": {
+                      "source":        "RetailShield",
+                      "caseType":      "LossPrevention",
+                      "priority":      "@{body('Parse_incident_entities')?['severity']}",
+                      "incidentId":    "@{outputs('Extract_LP_signal')?['incidentNumber']}",
+                      "incidentTitle": "@{outputs('Extract_LP_signal')?['incidentTitle']}",
+                      "description":   "@{outputs('Extract_LP_signal')?['description']}",
+                      "raisedAt":      "@{outputs('Extract_LP_signal')?['detectedAt']}",
+                      "status":        "Open"
+                    }
+                  }
+                }
+              },
+              "else": {
+                "actions": {}
+              }
+            },
+            "Add_Sentinel_comment_complete": {
+              "type": "ApiConnection",
+              "runAfter": { "Check_HR_integration_enabled": ["Succeeded"] },
+              "inputs": {
+                "body": {
+                  "incidentArmId": "@triggerBody()?['object']?['id']",
+                  "message": "[LP Playbook — Complete] Automated response finished. Actions taken: LP manager notified via email. Critical escalation to SOC (if applicable). CCTV footage flagged for retention (if configured). HR case created (if configured). Sentinel incident status updated."
+                },
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/Incidents/Comment"
+              }
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azuresentinel": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('SentinelConnectionName'))]",
+                "connectionName": "[variables('SentinelConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]",
+                "connectionProperties": {
+                  "authentication": {
+                    "type": "ManagedServiceIdentity"
+                  }
+                }
+              },
+              "office365": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', variables('OutlookConnectionName'))]",
+                "connectionName": "[variables('OutlookConnectionName')]",
+                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/office365')]"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "PlaybookResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Logic/workflows', parameters('PlaybookName'))]"
+    },
+    "PlaybookName": {
+      "type": "string",
+      "value": "[parameters('PlaybookName')]"
+    }
+  }
+}
