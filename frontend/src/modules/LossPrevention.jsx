@@ -189,13 +189,33 @@ function IncidentDetail({ inc, onClose }) {
   );
 }
 
-export default function LossPrevention({ nav, onBack }) {
+export default function LossPrevention({ nav, onBack, lpIncidents, setLpIncidents }) {
   const { isMobile } = useBreakpoint();
-  const [selectedInc, setSelectedInc]   = useState(null);
-  const [filterRule,  setFilterRule]    = useState('All');
-  const [filterSev,   setFilterSev]     = useState('All');
+  const [selectedInc, setSelectedInc] = useState(null);
+  const [filterRule,  setFilterRule]  = useState('All');
+  const [filterSev,   setFilterSev]   = useState('All');
+  const [simulating,  setSimulating]  = useState(false);
+  const lastScenario = useRef(-1);
 
-  const incidents = LP_INCIDENTS;
+  const incidents = lpIncidents;
+
+  const runSim = useCallback(() => {
+    if (simulating) return;
+    setSimulating(true);
+    let idx = Math.floor(Math.random() * LP_ATTACK_SIM_EVENTS.length);
+    if (LP_ATTACK_SIM_EVENTS.length > 1 && idx === lastScenario.current) {
+      idx = (idx + 1) % LP_ATTACK_SIM_EVENTS.length;
+    }
+    lastScenario.current = idx;
+    const scenario = LP_ATTACK_SIM_EVENTS[idx];
+    setTimeout(() => {
+      setLpIncidents(prev => {
+        const maxNum = prev.reduce((m, i) => Math.max(m, parseInt(i.id.replace(/\D/g, ''), 10) || 0), 8);
+        return [{ ...scenario, id: `LP-INC-${String(maxNum + 1).padStart(3, '0')}`, detectedAt: new Date().toISOString() }, ...prev];
+      });
+      setSimulating(false);
+    }, 800);
+  }, [simulating, setLpIncidents]);
   const storeRisk = LP_STORE_RISK;
 
   const filtered = useMemo(() => incidents.filter(inc => {
