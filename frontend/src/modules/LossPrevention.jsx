@@ -225,14 +225,29 @@ export default function LossPrevention({ nav, onBack }) {
       <main style={{ flex:1, padding:'clamp(16px,3vw,28px) clamp(14px,3vw,28px)', maxWidth:'1200px', width:'100%', margin:'0 auto', display:'flex', flexDirection:'column', gap:'20px' }}>
 
         {/* Page header */}
-        <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'9px', background:LP_DIM, border:`1px solid rgba(249,115,22,0.25)`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-            <ShoppingCart size={18} color={LP_COLOR} />
+        <div style={{ display:'flex', alignItems:'center', gap:'10px', justifyContent:'space-between', flexWrap:'wrap' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'36px', height:'36px', borderRadius:'9px', background:LP_DIM, border:`1px solid rgba(249,115,22,0.25)`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <ShoppingCart size={18} color={LP_COLOR} />
+            </div>
+            <div>
+              <h1 style={{ fontSize:'16px', fontWeight:700, color:'var(--text)', letterSpacing:'-0.02em' }}>Loss Prevention</h1>
+              <p style={{ fontSize:'12px', color:'var(--text-muted)' }}>Financial fraud detection, void/refund abuse, and store risk scoring</p>
+            </div>
           </div>
-          <div>
-            <h1 style={{ fontSize:'16px', fontWeight:700, color:'var(--text)', letterSpacing:'-0.02em' }}>Loss Prevention</h1>
-            <p style={{ fontSize:'12px', color:'var(--text-muted)' }}>Financial fraud detection, void/refund abuse, and store risk scoring</p>
-          </div>
+          <button onClick={runSim} disabled={simulating}
+            style={{
+              display:'flex', alignItems:'center', gap:'6px',
+              padding:'7px 14px', borderRadius:'var(--r-btn)',
+              background: simulating ? 'rgba(249,115,22,0.4)' : LP_COLOR,
+              border:'none', color:'#fff', fontSize:'12px', fontWeight:600,
+              cursor: simulating ? 'not-allowed' : 'pointer',
+              transition:'background var(--t)', minHeight:'36px', flexShrink:0,
+            }}
+          >
+            <Zap size={13} />
+            {simulating ? 'Simulating…' : 'Simulate LP Incident'}
+          </button>
         </div>
 
         {/* KPI cards */}
