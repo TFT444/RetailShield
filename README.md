@@ -87,13 +87,16 @@ RetailShield closes that gap.
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 2. DETECTION — 20 KQL rules mapped to MITRE ATT&CK             │
+│ 2. DETECTION — 24 KQL rules mapped to MITRE ATT&CK             │
 │                                                                 │
 │ Retail-specific (14): gift-card fraud · POS void/refund ·      │
 │ credential stuffing · MFA fatigue · phishing · ransomware ·    │
 │ supplier compromise · data exfil · AI voice fraud · POS        │
 │ anomaly · privileged role abuse · after-hours · impossible      │
 │ travel · TLS downgrade (PCI)                                    │
+│                                                                 │
+│ Loss Prevention (4): void/refund abuse · gift card fraud ·     │
+│ sweethearting · after-hours POS transaction                     │
 │                                                                 │
 │ Generic SOC (6): brute force · bulk file access · C2 beacon ·  │
 │ DNS exfil · RDP lateral movement · suspicious PowerShell        │
@@ -119,7 +122,7 @@ RetailShield closes that gap.
 └─────────────────────────────────────────────────────────────────┘
 
 MODULES: [Threat Detection: LIVE] [Compliance Centre: LIVE] [Vulnerability Scanner: LIVE]
-         [Loss Prevention: PLANNED] [ChainShield: PLANNED]
+         [Loss Prevention: LIVE] [ChainShield: PLANNED]
 
 Validated in a controlled lab · published methodology (DOI 10.5281/zenodo.20608262) · avg ~22 min MTTD
 A Sentinel-native content pack — not a standalone SIEM.
@@ -131,8 +134,8 @@ A Sentinel-native content pack — not a standalone SIEM.
 
 | Content type | Count | Description |
 |---|---|---|
-| **KQL Analytics Rules** | 13 retail + 6 generic | Scheduled analytics rules covering POS fraud, ransomware, exfiltration, identity abuse, supply chain, voice fraud |
-| **Logic App Playbooks** | 3 | Triage & classify, threat-intel enrichment (AbuseIPDB / VirusTotal), containment (block IP / disable account / isolate host) |
+| **KQL Analytics Rules** | 18 retail + 6 generic | Scheduled analytics rules covering POS fraud, ransomware, exfiltration, identity abuse, supply chain, voice fraud, and loss prevention |
+| **Logic App Playbooks** | 4 | Triage & classify, threat-intel enrichment (AbuseIPDB / VirusTotal), containment (block IP / disable account / isolate host), LP incident response |
 | **Sentinel Workbook** | 1 | Live incident feed, TTP heatmap, analyst KPIs |
 | **Watchlists** | 5 | RetailIOCWatchlist, RetailApprovedSenders, AbuseIPDBWatchlist, RetailSupplierAccounts, RetailServiceAccounts |
 | **Hunting Queries** | Planned | Proactive threat hunting queries for retail TTPs |
@@ -158,6 +161,16 @@ A Sentinel-native content pack — not a standalone SIEM.
 | Initial Access | T1195 | Supply Chain Compromise | `retail/supply_chain_anomaly.kql` | notify_soc |
 | Initial Access | T1199 / T1078 | Trusted Relationship / Valid Accounts | `retail/supplier_impossible_travel.kql` | notify_soc |
 | Persistence | T1098 / T1078 | Account Manipulation / Valid Accounts | `retail/privileged_role_addition.kql` | notify_soc |
+| Credential Access / Collection | T1557 | Adversary-in-the-Middle | `retail/tls_downgrade_pos.kql` | notify_soc |
+
+### Loss Prevention rules
+
+| Tactic | Technique ID | Technique Name | Detection Rule | Playbook |
+|---|---|---|---|---|
+| Impact | T1657 | Financial Theft | `retail/lp-pos-void-refund-abuse.kql` | lp-incident-response |
+| Impact | T1657 | Financial Theft | `retail/lp-gift-card-rapid-redemption.kql` | lp-incident-response |
+| Impact | T1657 | Financial Theft | `retail/lp-sweethearting.kql` | lp-incident-response |
+| Impact | T1657 | Financial Theft | `retail/lp-after-hours-pos-transaction.kql` | lp-incident-response |
 
 ### Generic rules
 
@@ -194,7 +207,12 @@ RetailShield/
 │   │   ├── ransomware_indicator.kql        # RS-RAN-001 — T1486    — Critical
 │   │   ├── supply_chain_anomaly.kql        # RS-SUP-001 — T1195    — High
 │   │   ├── supplier_impossible_travel.kql  # RS-SUP-002 — T1199    — Medium
-│   │   └── privileged_role_addition.kql    # RS-PRA-001 — T1098    — High
+│   │   ├── privileged_role_addition.kql    # RS-PRA-001 — T1098    — High
+│   │   ├── tls_downgrade_pos.kql           # RS-TLS-001 — T1557    — High
+│   │   ├── lp-pos-void-refund-abuse.kql    # LP-001     — T1657    — High
+│   │   ├── lp-gift-card-rapid-redemption.kql # LP-002   — T1657    — High
+│   │   ├── lp-sweethearting.kql            # LP-003     — T1657    — High
+│   │   └── lp-after-hours-pos-transaction.kql # LP-004  — T1657    — High
 │   ├── generic/                            # General-purpose SOC rules
 │   │   ├── brute-force-login.kql           # GEN-001 — T1110
 │   │   ├── bulk-file-access.kql            # GEN-002 — T1005
@@ -212,6 +230,8 @@ RetailShield/
 │   ├── containment/
 │   │   ├── workflow.json                   # Block IP / Disable account / Isolate host
 │   │   └── README.md
+│   ├── lp-incident-response/
+│   │   └── workflow.json                   # LP incident triage, manager notification, HR/CCTV escalation
 │   └── DEPLOYMENT.md                       # Step-by-step Logic App deployment guide
 │
 ├── sentinel/
@@ -232,11 +252,13 @@ RetailShield/
 │   ├── validate_kql.py                     # KQL rule static validator (used by CI)
 │   ├── validate_logicapps.py               # Logic App JSON validator (used by CI)
 │   ├── retail_log_generator.py             # Sample retail log generator for testing
-│   └── cve_scanner.py                      # CVE scanner utility
+│   ├── cve_scanner.py                      # CVE scanner utility
+│   └── deploy_all.py                       # One-command deployment to Sentinel workspace
 │
 ├── tests/
 │   ├── detection-rules/
-│   │   └── test_kql_rules.py
+│   │   ├── test_kql_rules.py
+│   │   └── test_lp_rules.py                # 94 tests covering all 4 LP detection rules
 │   └── playbooks/
 │       └── test_playbook_schema.py
 │
@@ -268,9 +290,14 @@ git checkout dev
 
 ### 2. Deploy KQL analytics rules to Sentinel
 
-Rules are deployed manually through the Microsoft Sentinel Analytics blade. There is no automated deployment script at this time.
+Rules can be deployed via the included script (requires `az login` and ARM rule templates in `sentinel/analytics-rules/`):
 
-For each `.kql` file in `detection-rules/retail/` (and optionally `detection-rules/generic/`):
+```bash
+pip install azure-identity azure-mgmt-securityinsight
+python scripts/deploy_all.py --workspace <workspace-name> --resource-group <rg-name> --dry-run
+```
+
+Or deploy manually through the Microsoft Sentinel Analytics blade. For each `.kql` file in `detection-rules/retail/` (and optionally `detection-rules/generic/`):
 
 1. In the Azure Portal, open your Sentinel workspace → **Analytics** → **+ Create** → **Scheduled query rule**
 2. Set the rule name and description using the `// Rule ID` and `// Title` comments at the top of the file
