@@ -11,10 +11,11 @@ Research paper: [DOI 10.5281/zenodo.20608262](https://doi.org/10.5281/zenodo.206
 The foundation: a working SOC platform purpose-built for UK retail, with published research validating the detection capability.
 
 ### Detection engineering
-- [x] 19 production-ready KQL detection rules covering the full MITRE ATT&CK kill chain
-- [x] 8 Logic App playbooks for automated incident response
+- [x] 24 production-ready KQL detection rules covering the full MITRE ATT&CK kill chain
+- [x] 9 Logic App playbooks for automated incident response
 - [x] Sentinel analytics-rule JSON wrappers for one-click deployment
-- [x] 221 automated pytest tests validating rule syntax and MITRE mapping
+- [x] 315 automated pytest tests validating rule syntax and MITRE mapping
+- [x] One-command deployment script (`scripts/deploy_all.py`) for Sentinel workspace
 
 ### Compliance automation
 - [x] ICO 72-hour breach notification countdown with auto-generated draft reports
@@ -23,11 +24,12 @@ The foundation: a working SOC platform purpose-built for UK retail, with publish
 - [x] Submission history tracking
 
 ### Platform
-- [x] Responsive portal dashboard (Landing → Login → Portal → 4 modules)
+- [x] Responsive portal dashboard (Landing → Login → Portal → 5 modules)
 - [x] Threat Detection module: live incident feed, MITRE heatmap, attack timeline, AI-generated incident reports
 - [x] Vulnerability Scanner: SVG risk gauge, phased scan progress, OWASP Top 10 findings
 - [x] Compliance Centre: live countdown timers, regulatory accordion, submission log
-- [x] Detection Rules: 19-rule table with search/filter, full MITRE ATT&CK coverage matrix
+- [x] Detection Rules: 24-rule table with search/filter, full MITRE ATT&CK coverage matrix
+- [x] Loss Prevention module: store risk leaderboard, incident detail panel, void/refund/gift card/sweethearting signals
 - [x] Fully responsive at 375px, 768px, 1024px, and 1440px viewport widths
 - [x] SIMULATE ATTACK feature populating all modules with realistic incident data
 
@@ -42,10 +44,10 @@ The foundation: a working SOC platform purpose-built for UK retail, with publish
 Expanding coverage to retail-specific financial crime and supply chain risk, and connecting the platform to live Sentinel data.
 
 ### Loss Prevention module
-- [ ] POS transaction anomaly detection (void abuse, refund fraud, sweethearting patterns)
-- [ ] Gift card abuse tracking (bulk activation, rapid redemption sequences)
-- [ ] Store risk scoring dashboard with trend analysis
-- [ ] Integration with retail EPOS event logs
+- [x] POS transaction anomaly detection (void abuse, refund fraud, sweethearting patterns)
+- [x] Gift card abuse tracking (bulk activation, rapid redemption sequences)
+- [x] Store risk scoring dashboard with trend analysis
+- [x] Integration with retail EPOS event logs
 
 ### ChainShield — Supply chain security module
 - [ ] Third-party supplier compromise detection

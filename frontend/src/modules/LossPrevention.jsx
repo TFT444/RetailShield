@@ -1,13 +1,13 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import {
   ShoppingCart, AlertTriangle, TrendingUp, TrendingDown,
   Minus, X, Clock, User, Monitor, ChevronRight,
-  PoundSterling, Store, BarChart2,
+  PoundSterling, Store, BarChart2,Zap,
 } from 'lucide-react';
 import TopBar      from '../components/TopBar.jsx';
 import SeverityBadge from '../components/SeverityBadge.jsx';
 import StatCard    from '../components/StatCard.jsx';
-import { LP_INCIDENTS, LP_STORE_RISK } from '../lib/data.js';
+import { LP_ATTACK_SIM_EVENTS, LP_STORE_RISK } from '../lib/data.js';
 import { useBreakpoint } from '../lib/hooks.js';
 
 const LP_COLOR = '#F97316';
@@ -189,13 +189,33 @@ function IncidentDetail({ inc, onClose }) {
   );
 }
 
-export default function LossPrevention({ nav, onBack }) {
+export default function LossPrevention({ nav, onBack, lpIncidents, setLpIncidents }) {
   const { isMobile } = useBreakpoint();
-  const [selectedInc, setSelectedInc]   = useState(null);
-  const [filterRule,  setFilterRule]    = useState('All');
-  const [filterSev,   setFilterSev]     = useState('All');
+  const [selectedInc, setSelectedInc] = useState(null);
+  const [filterRule,  setFilterRule]  = useState('All');
+  const [filterSev,   setFilterSev]   = useState('All');
+  const [simulating,  setSimulating]  = useState(false);
+  const lastScenario = useRef(-1);
 
-  const incidents = LP_INCIDENTS;
+  const incidents = lpIncidents;
+
+  const runSim = useCallback(() => {
+    if (simulating) return;
+    setSimulating(true);
+    let idx = Math.floor(Math.random() * LP_ATTACK_SIM_EVENTS.length);
+    if (LP_ATTACK_SIM_EVENTS.length > 1 && idx === lastScenario.current) {
+      idx = (idx + 1) % LP_ATTACK_SIM_EVENTS.length;
+    }
+    lastScenario.current = idx;
+    const scenario = LP_ATTACK_SIM_EVENTS[idx];
+    setTimeout(() => {
+      setLpIncidents(prev => {
+        const maxNum = prev.reduce((m, i) => Math.max(m, parseInt(i.id.replace(/\D/g, ''), 10) || 0), 8);
+        return [{ ...scenario, id: `LP-INC-${String(maxNum + 1).padStart(3, '0')}`, detectedAt: new Date().toISOString() }, ...prev];
+      });
+      setSimulating(false);
+    }, 800);
+  }, [simulating, setLpIncidents]);
   const storeRisk = LP_STORE_RISK;
 
   const filtered = useMemo(() => incidents.filter(inc => {
@@ -225,14 +245,29 @@ export default function LossPrevention({ nav, onBack }) {
       <main style={{ flex:1, padding:'clamp(16px,3vw,28px) clamp(14px,3vw,28px)', maxWidth:'1200px', width:'100%', margin:'0 auto', display:'flex', flexDirection:'column', gap:'20px' }}>
 
         {/* Page header */}
-        <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'9px', background:LP_DIM, border:`1px solid rgba(249,115,22,0.25)`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-            <ShoppingCart size={18} color={LP_COLOR} />
+        <div style={{ display:'flex', alignItems:'center', gap:'10px', justifyContent:'space-between', flexWrap:'wrap' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <div style={{ width:'36px', height:'36px', borderRadius:'9px', background:LP_DIM, border:`1px solid rgba(249,115,22,0.25)`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <ShoppingCart size={18} color={LP_COLOR} />
+            </div>
+            <div>
+              <h1 style={{ fontSize:'16px', fontWeight:700, color:'var(--text)', letterSpacing:'-0.02em' }}>Loss Prevention</h1>
+              <p style={{ fontSize:'12px', color:'var(--text-muted)' }}>Financial fraud detection, void/refund abuse, and store risk scoring</p>
+            </div>
           </div>
-          <div>
-            <h1 style={{ fontSize:'16px', fontWeight:700, color:'var(--text)', letterSpacing:'-0.02em' }}>Loss Prevention</h1>
-            <p style={{ fontSize:'12px', color:'var(--text-muted)' }}>Financial fraud detection, void/refund abuse, and store risk scoring</p>
-          </div>
+          <button onClick={runSim} disabled={simulating}
+            style={{
+              display:'flex', alignItems:'center', gap:'6px',
+              padding:'7px 14px', borderRadius:'var(--r-btn)',
+              background: simulating ? 'rgba(249,115,22,0.4)' : LP_COLOR,
+              border:'none', color:'#fff', fontSize:'12px', fontWeight:600,
+              cursor: simulating ? 'not-allowed' : 'pointer',
+              transition:'background var(--t)', minHeight:'36px', flexShrink:0,
+            }}
+          >
+            <Zap size={13} />
+            {simulating ? 'Simulating…' : 'Simulate LP Incident'}
+          </button>
         </div>
 
         {/* KPI cards */}

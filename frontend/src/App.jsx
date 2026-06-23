@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BASELINE_INCIDENTS } from './lib/data.js';
+import { BASELINE_INCIDENTS, LP_INCIDENTS } from './lib/data.js';
 import Landing   from './pages/Landing.jsx';
 import Login     from './pages/Login.jsx';
 import Portal    from './pages/Portal.jsx';
@@ -10,8 +10,9 @@ import DetectionRules     from './modules/DetectionRules.jsx';
 import LossPrevention    from './modules/LossPrevention.jsx';
 
 export default function App() {
-  const [route, setRoute]       = useState('landing');
-  const [incidents, setIncidents] = useState([...BASELINE_INCIDENTS]);
+  const [route, setRoute]           = useState('landing');
+  const [incidents, setIncidents]   = useState([...BASELINE_INCIDENTS]);
+  const [lpIncidents, setLpIncidents] = useState([...LP_INCIDENTS]);
 
   const nav = (page) => {
     setRoute(page);
@@ -28,7 +29,7 @@ export default function App() {
     case 'vuln':       return <VulnerabilityScanner nav={nav} onBack={() => nav('portal')} />;
     case 'compliance': return <ComplianceCentre   nav={nav} incidents={incidents} onBack={() => nav('portal')} />;
     case 'rules':      return <DetectionRules     nav={nav} onBack={() => nav('portal')} />;
-    case 'lp':         return <LossPrevention    nav={nav} onBack={() => nav('portal')} />;
+    case 'lp':         return <LossPrevention     nav={nav} onBack={() => nav('portal')} lpIncidents={lpIncidents} setLpIncidents={setLpIncidents} />;
     default:           return <Landing   onDemo={() => nav('portal')} onSignIn={() => nav('login')} />;
   }
 }
