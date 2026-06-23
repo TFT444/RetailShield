@@ -21,7 +21,6 @@ from pathlib import Path
 try:
     from azure.identity import AzureCliCredential
     from azure.mgmt.securityinsight import SecurityInsights
-    from azure.mgmt.securityinsight.models import ScheduledAlertRule
 except ImportError:
     print("ERROR: Missing dependencies. Run: pip install azure-identity azure-mgmt-securityinsight")
     sys.exit(1)
@@ -68,7 +67,7 @@ def deploy_rules(workspace: str, resource_group: str, dry_run: bool = False):
         print("ERROR: No rule templates found in sentinel/analytics-rules/")
         sys.exit(1)
 
-    print(f"\nRetailShield Deployment")
+    print("\nRetailShield Deployment")
     print(f"  Workspace:      {workspace}")
     print(f"  Resource group: {resource_group}")
     print(f"  Rules found:    {len(templates)}")
