@@ -20,6 +20,10 @@ export const DETECTION_RULES = [
   { id: 'DR-017', name: 'Scheduled Task Creation',          technique: 'T1053.005', tactic: 'Persistence',       severity: 'Medium',   status: 'Active',   file: 'scheduled_task.kql',            lastTriggered: '2 hr ago',    triggerCount: 8  },
   { id: 'DR-018', name: 'LSASS Memory Access',              technique: 'T1003.001', tactic: 'Credential Access', severity: 'Critical', status: 'Active',   file: 'lsass_access.kql',              lastTriggered: '6 hr ago',    triggerCount: 2  },
   { id: 'DR-019', name: 'Malicious Macro in Office File',   technique: 'T1566.001', tactic: 'Initial Access',    severity: 'High',     status: 'Disabled', file: 'office_macro.kql',              lastTriggered: 'Never',       triggerCount: 0  },
+  { id: 'LP-001', name: 'POS Void / Refund Abuse',         technique: 'T1657',     tactic: 'Impact',            severity: 'High',     status: 'Active',   file: 'lp-pos-void-refund-abuse.kql',          lastTriggered: '12 min ago',  triggerCount: 7  },
+  { id: 'LP-002', name: 'Gift Card Rapid Redemption',      technique: 'T1657',     tactic: 'Impact',            severity: 'High',     status: 'Active',   file: 'lp-gift-card-rapid-redemption.kql',     lastTriggered: '6 min ago',   triggerCount: 3  },
+  { id: 'LP-003', name: 'Sweethearting / Buddy Fraud',     technique: 'T1657',     tactic: 'Impact',            severity: 'High',     status: 'Active',   file: 'lp-sweethearting.kql',                  lastTriggered: '2 hr ago',    triggerCount: 2  },
+  { id: 'LP-004', name: 'After-Hours POS Transaction',     technique: 'T1657',     tactic: 'Impact',            severity: 'High',     status: 'Active',   file: 'lp-after-hours-pos-transaction.kql',    lastTriggered: '3 hr ago',    triggerCount: 4  },
 ];
 
 export const MITRE_COVERAGE = [
@@ -34,7 +38,7 @@ export const MITRE_COVERAGE = [
   { tactic: 'Collection',            covered: 1, total: 5  },
   { tactic: 'C2',                    covered: 3, total: 6  },
   { tactic: 'Exfiltration',          covered: 2, total: 4  },
-  { tactic: 'Impact',                covered: 2, total: 7  },
+  { tactic: 'Impact',                covered: 4, total: 7  },
 ];
 
 export const BASELINE_INCIDENTS = [
