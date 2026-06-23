@@ -7,7 +7,7 @@ import {
 import TopBar      from '../components/TopBar.jsx';
 import SeverityBadge from '../components/SeverityBadge.jsx';
 import StatCard    from '../components/StatCard.jsx';
-import { LP_INCIDENTS, LP_STORE_RISK } from '../lib/data.js';
+import { LP_ATTACK_SIM_EVENTS, LP_STORE_RISK } from '../lib/data.js';
 import { useBreakpoint } from '../lib/hooks.js';
 
 const LP_COLOR = '#F97316';
